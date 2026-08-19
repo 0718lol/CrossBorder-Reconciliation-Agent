@@ -1,0 +1,4 @@
+transaction_id,account_id,booking_date,value_date,direction,amount,currency,fee_amount,reference,counterparty,description,running_balance
+WISE-TEST-001,WISE-USD-TEST,2026-08-07,2026-08-07,credit,7926.62,USD,0.00,BATCH-PP-001,Fictional PayPal settlement,Incoming fictional settlement,7926.62
+WISE-TEST-002,WISE-USD-TEST,2026-08-11,2026-08-11,credit,10907.50,USD,0.00,po_test_001,Fictional Stripe settlement,Incoming fictional settlement,18834.12
+WISE-TEST-003,WISE-USD-TEST,2026-08-12,2026-08-12,debit,7.88,USD,0.00,FEE-TEST-001,Fictional Bank,Account service fee,18826.24

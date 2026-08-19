@@ -1,0 +1,5 @@
+id,amount,fee,net,currency,created,available_on,reporting_category,source,status,type,description
+txn_test_charge_001,1250000,36250,1213750,usd,1785686400,1785686400,charge,ch_test_001,available,charge,Fictional Stripe card payment batch
+txn_test_refund_001,-12000,0,-12000,usd,1785859200,1785859200,refund,re_test_001,available,refund,Fictional refund
+txn_test_dispute_001,-45000,0,-45000,usd,1786291200,1786291200,dispute,dp_test_001,available,adjustment,Fictional chargeback
+txn_test_payout_001,-1090750,0,-1090750,usd,1786464000,1786464000,payout,po_test_001,available,payout,Fictional payout to bank

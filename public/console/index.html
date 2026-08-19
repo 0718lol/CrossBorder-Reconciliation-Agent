@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HyperRecon 资金作业台</title>
+    <link rel="stylesheet" href="/console/styles.css" />
+  </head>
+  <body>
+    <section id="loginView" class="login-view">
+      <div class="login-brand"><span class="brand-mark">H</span><strong>HyperRecon</strong><small>资金作业台</small></div>
+      <form id="loginForm" class="login-panel">
+        <div><span class="eyebrow">本地演示环境</span><h1>进入资金作业工作区</h1><p>使用真实 Foundation API 与 PostgreSQL 数据。</p></div>
+        <label>邮箱<input id="emailInput" type="email" value="demo@hyperrecon.local" autocomplete="username" required /></label>
+        <label>密码<input id="passwordInput" type="password" value="HyperRecon-Demo-2026!" autocomplete="current-password" required /></label>
+        <button class="button primary wide" type="submit">登录工作区</button>
+        <p class="login-note">仅使用完全虚构数据。当前认证不具备 MFA、SSO 或登录限流。</p>
+      </form>
+    </section>
+
+    <div id="appShell" class="app-shell hidden">
+      <aside class="sidebar">
+        <div class="brand"><span class="brand-mark">H</span><div><strong>HyperRecon</strong><small>Operations</small></div></div>
+        <nav id="mainNav">
+          <button class="nav-item active" data-view="overview"><span>01</span>作业总览</button>
+          <button class="nav-item" data-view="sources"><span>02</span>数据接入</button>
+          <button class="nav-item" data-view="runs"><span>03</span>对账运行</button>
+          <button class="nav-item" data-view="exceptions"><span>04</span>异常队列<b id="exceptionBadge">0</b></button>
+          <button class="nav-item" data-view="periods"><span>05</span>月结中心</button>
+          <button class="nav-item" data-view="audit"><span>06</span>审计记录</button>
+        </nav>
+        <div class="sidebar-foot"><span class="live-dot"></span><div><strong>Foundation API</strong><small id="apiStatus">正在连接</small></div></div>
+      </aside>
+
+      <section class="workspace">
+        <header class="topbar">
+          <button id="menuButton" class="icon-button" type="button" title="展开导航">☰</button>
+          <div class="page-identity"><span id="pageEyebrow">资金运营</span><h1 id="pageTitle">作业总览</h1></div>
+          <div class="top-actions">
+            <div id="workspaceIdentity" class="workspace-identity"></div>
+            <button id="refreshButton" class="icon-button" type="button" title="刷新数据">↻</button>
+            <button id="logoutButton" class="button ghost" type="button">退出</button>
+          </div>
+        </header>
+
+        <main class="content">
+          <section id="overview" class="view active">
+            <div class="period-band"><div><span>当前作业期间</span><strong>2026-08-01 至 2026-08-31</strong></div><div id="periodBandStatus" class="period-state"></div></div>
+            <div id="metricStrip" class="metric-strip"></div>
+            <div class="section-row"><div><h2>资金处理链路</h2><p>从来源文件到月结锁定的实时进度</p></div><div id="currencyLegend" class="currency-legend"></div></div>
+            <div id="flowRail" class="flow-rail"></div>
+            <div class="overview-grid">
+              <section class="panel"><div class="panel-head"><div><h2>最近对账运行</h2><p>每次运行固定规则、期间与记录水位</p></div><button class="text-button" data-view="runs">查看全部</button></div><div class="table-scroll"><table><thead><tr><th>期间</th><th>状态</th><th>匹配组</th><th>阻断异常</th><th>完成时间</th></tr></thead><tbody id="overviewRunRows"></tbody></table></div></section>
+              <section class="panel exception-panel"><div class="panel-head"><div><h2>优先处理异常</h2><p>歧义与未匹配记录不会自动确认</p></div><button class="text-button" data-view="exceptions">进入队列</button></div><div id="overviewExceptions" class="exception-list"></div></section>
+            </div>
+            <div class="scope-band"><strong>当前能力边界</strong><span>规则发布、异常解决审批、XLSX/PDF 证据包尚未实现。当前页面不会模拟这些动作。</span></div>
+          </section>
+
+          <section id="sources" class="view">
+            <div class="section-row"><div><h2>数据来源</h2><p>每个文件保留 SHA-256、原始行和标准化记录</p></div></div>
+            <form id="uploadForm" class="action-bar"><label>目标来源<select id="uploadSource" required></select></label><label class="file-control">CSV 文件<input id="uploadFile" type="file" accept=".csv,text/csv" required /><span id="uploadFilename">选择文件</span></label><button class="button primary" type="submit">验证并导入</button></form>
+            <div class="table-scroll"><table><thead><tr><th>来源</th><th>类型</th><th>成功批次</th><th>累计行数</th><th>最近导入</th><th>状态</th></tr></thead><tbody id="sourceRows"></tbody></table></div>
+            <div class="section-row secondary-heading"><div><h2>最近导入批次</h2><p>失败预检不会发布标准记录</p></div></div>
+            <div class="table-scroll"><table><thead><tr><th>文件</th><th>来源</th><th>行数</th><th>状态</th><th>提交时间</th><th>文件哈希</th></tr></thead><tbody id="importRows"></tbody></table></div>
+          </section>
+
+          <section id="runs" class="view">
+            <div class="split-layout"><div>
+              <div class="section-row"><div><h2>对账运行</h2><p>规则按固定记录水位确定性执行</p></div><button id="toggleRunForm" class="button primary" type="button">新建运行</button></div>
+              <form id="runForm" class="form-band hidden"><label>开始日期<input id="runStart" type="date" value="2026-08-01" required /></label><label>结束日期<input id="runEnd" type="date" value="2026-08-31" required /></label><label>来源<select id="runSource" required></select></label><label>目标<select id="runTarget" required></select></label><label>来源金额<select id="sourceAmountField"><option value="gross_minor">交易总额</option><option value="net_minor">净额</option></select></label><label>目标金额<select id="targetAmountField"><option value="gross_minor">交易总额</option><option value="net_minor">净额</option></select></label><label class="check-control"><input id="allowPartial" type="checkbox" />允许保守部分匹配</label><div class="form-actions"><button id="cancelRun" class="button ghost" type="button">取消</button><button class="button primary" type="submit">执行对账</button></div></form>
+              <div class="table-scroll"><table><thead><tr><th>运行</th><th>期间</th><th>状态</th><th>匹配组</th><th>异常</th><th>规则哈希</th></tr></thead><tbody id="runRows"></tbody></table></div>
+            </div><aside id="runDetail" class="detail-panel"><div class="empty-detail"><strong>选择一次运行</strong><p>查看匹配组、分配金额与规则证据。</p></div></aside></div>
+          </section>
+
+          <section id="exceptions" class="view">
+            <div class="section-row"><div><h2>异常队列</h2><p>所有歧义与未匹配记录进入人工调查</p></div><div class="filter-row"><select id="exceptionStatus"><option value="open">待处理</option><option value="resolved">已解决</option><option value="">全部状态</option></select><select id="exceptionCurrency"><option value="">全部币种</option><option>USD</option><option>EUR</option><option>GBP</option><option>HKD</option></select></div></div>
+            <div class="split-layout"><div class="table-scroll"><table><thead><tr><th>优先级</th><th>外部流水</th><th>来源</th><th>类型</th><th>金额</th><th>业务日期</th></tr></thead><tbody id="exceptionRows"></tbody></table></div><aside id="exceptionDetail" class="detail-panel"><div class="empty-detail"><strong>选择一条异常</strong><p>查看来源、金额和产生原因。</p></div></aside></div>
+          </section>
+
+          <section id="periods" class="view">
+            <div class="section-row"><div><h2>月结中心</h2><p>存在开放阻断异常时，系统拒绝锁定</p></div><button id="togglePeriodForm" class="button primary" type="button">创建期间</button></div>
+            <form id="periodForm" class="form-band compact hidden"><label>开始日期<input id="periodStart" type="date" value="2026-08-01" required /></label><label>结束日期<input id="periodEnd" type="date" value="2026-08-31" required /></label><div class="form-actions"><button id="cancelPeriod" class="button ghost" type="button">取消</button><button class="button primary" type="submit">创建期间</button></div></form>
+            <div class="table-scroll"><table><thead><tr><th>会计期间</th><th>版本</th><th>状态</th><th>锁定时间</th><th>Manifest</th><th>操作</th></tr></thead><tbody id="periodRows"></tbody></table></div>
+            <div class="scope-band"><strong>证据包</strong><span>当前只保存锁定快照与 manifest 哈希；正式 XLSX、PDF 和归档下载尚未实现。</span></div>
+          </section>
+
+          <section id="audit" class="view"><div class="section-row"><div><h2>审计记录</h2><p>数据库触发器禁止更新或删除审计事件</p></div></div><div class="table-scroll"><table><thead><tr><th>时间</th><th>动作</th><th>对象</th><th>操作者</th><th>请求 ID</th><th>原因</th></tr></thead><tbody id="auditRows"></tbody></table></div></section>
+        </main>
+      </section>
+    </div>
+
+    <dialog id="workspaceDialog"><form method="dialog"><div class="dialog-head"><div><h2>选择工作区</h2><p>这个账号属于多个工作区。</p></div></div><div id="workspaceChoices" class="workspace-choices"></div><button class="button ghost wide" value="cancel">取消</button></form></dialog>
+    <dialog id="closeDialog"><form id="closeForm"><div class="dialog-head"><div><h2>锁定会计期间</h2><p>选择本期间内要纳入证据快照的已完成运行。</p></div><button class="icon-button" type="button" data-close-dialog title="关闭">×</button></div><div id="closeRunChoices" class="run-choices"></div><div class="warning-box">锁定后普通写操作不能改变该期间，重新开账会创建新版本。</div><div class="dialog-actions"><button class="button ghost" type="button" data-close-dialog>取消</button><button class="button danger" type="submit">确认锁定</button></div></form></dialog>
+    <div id="toast" role="status" aria-live="polite"></div>
+    <script type="module" src="/console/app.js"></script>
+  </body>
+</html>

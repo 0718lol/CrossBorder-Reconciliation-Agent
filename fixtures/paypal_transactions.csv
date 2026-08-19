@@ -1,0 +1,4 @@
+transaction_id,paypal_reference_id,paypal_reference_id_type,transaction_event_code,transaction_initiation_date,transaction_updated_date,transaction_amount,transaction_currency,fee_amount,fee_currency,ending_balance,ending_balance_currency,transaction_status,invoice_id,custom_field
+PP-TEST-001,ORDER-TEST-001,ODR,T0006,2026-08-04T02:00:00Z,2026-08-04T02:01:00Z,8340.80,USD,-294.18,USD,8046.62,USD,S,INV-TEST-001,fictional
+PP-TEST-002,PP-TEST-001,TXN,T1107,2026-08-05T03:00:00Z,2026-08-05T03:02:00Z,-120.00,USD,0.00,USD,7926.62,USD,S,INV-TEST-001,fictional-refund
+PP-TEST-003,BATCH-PP-001,BAT,T0400,2026-08-06T01:00:00Z,2026-08-06T01:05:00Z,-7926.62,USD,0.00,USD,0.00,USD,S,,fictional-bank-transfer

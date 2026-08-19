@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: m.daocloud.io/docker.io/library/postgres:17-alpine
+    environment:
+      POSTGRES_DB: hyperrecon
+      POSTGRES_USER: hyperrecon
+      POSTGRES_PASSWORD: hyperrecon_dev_only
+    ports:
+      - "127.0.0.1:55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hyperrecon -d hyperrecon"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - hyperrecon_pg_data:/var/lib/postgresql/data
+
+volumes:
+  hyperrecon_pg_data:

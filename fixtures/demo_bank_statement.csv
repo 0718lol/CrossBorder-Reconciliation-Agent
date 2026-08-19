@@ -1,0 +1,4 @@
+transaction_id,account_id,value_date,booking_date,direction,amount,currency,reference,counterparty,description
+DEMO-BANK-USD-001,BANK-USD-DEMO,2026-08-15,2026-08-15,credit,17375.50,USD,DEMO-PAYOUT-USD,Fictional Stripe USD,USD settlement deposit
+DEMO-BANK-EUR-001,BANK-EUR-DEMO,2026-08-16,2026-08-16,credit,13531.50,EUR,DEMO-PAYOUT-EUR,Fictional Stripe EUR,EUR settlement deposit
+DEMO-BANK-GBP-001,BANK-GBP-DEMO,2026-08-17,2026-08-17,credit,6984.00,GBP,DEMO-PAYOUT-GBP,Fictional Stripe GBP,GBP settlement deposit

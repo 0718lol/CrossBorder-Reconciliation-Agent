@@ -1,0 +1,23 @@
+{
+  "name": "hyperrecon-foundation-service",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "sh scripts/run-node.sh src/server.mjs",
+    "migrate": "sh scripts/run-node.sh src/migrate.mjs",
+    "demo:seed": "sh scripts/run-node.sh src/demo-seed.mjs",
+    "test": "sh scripts/run-node.sh --test tests/*.test.mjs",
+    "test:integration": "RUN_DATABASE_TESTS=1 sh scripts/run-node.sh --test tests/database.test.mjs tests/recon-close.test.mjs",
+    "test:all": "RUN_DATABASE_TESTS=1 sh scripts/run-node.sh --test tests/*.test.mjs"
+  },
+  "dependencies": {
+    "@fastify/multipart": "^9.2.1",
+    "csv-parse": "^6.1.0",
+    "fastify": "^5.6.2",
+    "pg": "^8.16.3"
+  }
+}

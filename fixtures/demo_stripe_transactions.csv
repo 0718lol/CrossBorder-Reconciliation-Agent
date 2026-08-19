@@ -1,0 +1,10 @@
+id,amount,fee,net,currency,created,available_on,reporting_category,source,status,type,description
+DEMO-ST-USD-001,1250000,36250,1213750,usd,1785686400,1785686400,charge,DEMO-CH-USD-001,available,charge,Fictional USD card payment
+DEMO-ST-EUR-001,890000,26700,863300,eur,1785859200,1785859200,charge,DEMO-CH-EUR-001,available,charge,Fictional EUR card payment
+DEMO-ST-GBP-001,720000,21600,698400,gbp,1786032000,1786032000,charge,DEMO-CH-GBP-001,available,charge,Fictional GBP card payment
+DEMO-ST-USD-002,540000,16200,523800,usd,1786204800,1786204800,charge,DEMO-CH-USD-002,available,charge,Fictional USD card payment
+DEMO-ST-EUR-002,330000,9900,320100,eur,1786377600,1786377600,charge,DEMO-CH-EUR-002,available,charge,Fictional EUR card payment
+DEMO-ST-EUR-EXTRA,175000,5250,169750,eur,1786723200,1786723200,charge,DEMO-CH-EUR-EXTRA,available,charge,Fictional unmatched provider payment
+DEMO-PO-USD-001,-1737550,0,-1737550,usd,1786809600,1786809600,payout,DEMO-PAYOUT-USD,available,payout,Fictional USD payout
+DEMO-PO-EUR-001,-1353150,0,-1353150,eur,1786896000,1786896000,payout,DEMO-PAYOUT-EUR,available,payout,Fictional EUR payout
+DEMO-PO-GBP-001,-698400,0,-698400,gbp,1786982400,1786982400,payout,DEMO-PAYOUT-GBP,available,payout,Fictional GBP payout
