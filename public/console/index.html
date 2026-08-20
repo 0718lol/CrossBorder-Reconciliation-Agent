@@ -11,31 +11,32 @@
       <div class="login-brand"><span class="brand-mark">H</span><strong>HyperRecon</strong><small>资金作业台</small></div>
       <form id="loginForm" class="login-panel">
         <div><span class="eyebrow">本地演示环境</span><h1>进入资金作业工作区</h1><p>使用真实 Foundation API 与 PostgreSQL 数据。</p></div>
-        <label>邮箱<input id="emailInput" type="email" value="demo@hyperrecon.local" autocomplete="username" required /></label>
-        <label>密码<input id="passwordInput" type="password" value="HyperRecon-Demo-2026!" autocomplete="current-password" required /></label>
+        <label>邮箱<input id="emailInput" type="email" autocomplete="username" required /></label>
+        <label>密码<input id="passwordInput" type="password" autocomplete="current-password" required /></label>
         <button class="button primary wide" type="submit">登录工作区</button>
         <p class="login-note">仅使用完全虚构数据。当前认证不具备 MFA、SSO 或登录限流。</p>
       </form>
+      <aside id="quickDemo" class="quick-demo hidden" aria-label="快速体验身份">
+        <button id="quickDemoToggle" class="quick-demo-toggle" type="button" aria-expanded="false"><span class="quick-demo-pulse"></span><span><strong>快速体验</strong><small>选择一个身份自动填充</small></span><b>＋</b></button>
+        <div id="quickDemoPanel" class="quick-demo-panel" hidden>
+          <div class="quick-demo-head"><div><span class="eyebrow">DEMO MODE</span><strong>选择体验身份</strong></div><button id="quickDemoClose" class="quick-demo-close" type="button" title="收起快速体验">×</button></div>
+          <p>只填入表单，不会替你提交登录。</p>
+          <div id="quickDemoAccounts" class="quick-demo-accounts"></div>
+        </div>
+      </aside>
     </section>
 
     <div id="appShell" class="app-shell hidden">
       <aside class="sidebar">
         <div class="brand"><span class="brand-mark">H</span><div><strong>HyperRecon</strong><small>Operations</small></div></div>
-        <nav id="mainNav">
-          <button class="nav-item active" data-view="overview"><span>01</span>作业总览</button>
-          <button class="nav-item" data-view="sources"><span>02</span>数据接入</button>
-          <button class="nav-item" data-view="runs"><span>03</span>对账运行</button>
-          <button class="nav-item" data-view="exceptions"><span>04</span>异常队列<b id="exceptionBadge">0</b></button>
-          <button class="nav-item" data-view="periods"><span>05</span>月结中心</button>
-          <button class="nav-item" data-view="audit"><span>06</span>审计记录</button>
-        </nav>
+        <nav id="mainNav"></nav>
         <div class="sidebar-foot"><span class="live-dot"></span><div><strong>Foundation API</strong><small id="apiStatus">正在连接</small></div></div>
       </aside>
 
       <section class="workspace">
         <header class="topbar">
           <button id="menuButton" class="icon-button" type="button" title="展开导航">☰</button>
-          <div class="page-identity"><span id="pageEyebrow">资金运营</span><h1 id="pageTitle">作业总览</h1></div>
+          <div class="page-identity"><span id="pageEyebrow">跨境资金控制</span><h1 id="pageTitle">资金驾驶舱</h1></div>
           <div class="top-actions">
             <div id="workspaceIdentity" class="workspace-identity"></div>
             <button id="refreshButton" class="icon-button" type="button" title="刷新数据">↻</button>
@@ -45,15 +46,46 @@
 
         <main class="content">
           <section id="overview" class="view active">
-            <div class="period-band"><div><span>当前作业期间</span><strong>2026-08-01 至 2026-08-31</strong></div><div id="periodBandStatus" class="period-state"></div></div>
-            <div id="metricStrip" class="metric-strip"></div>
-            <div class="section-row"><div><h2>资金处理链路</h2><p>从来源文件到月结锁定的实时进度</p></div><div id="currencyLegend" class="currency-legend"></div></div>
-            <div id="flowRail" class="flow-rail"></div>
-            <div class="overview-grid">
-              <section class="panel"><div class="panel-head"><div><h2>最近对账运行</h2><p>每次运行固定规则、期间与记录水位</p></div><button class="text-button" data-view="runs">查看全部</button></div><div class="table-scroll"><table><thead><tr><th>期间</th><th>状态</th><th>匹配组</th><th>阻断异常</th><th>完成时间</th></tr></thead><tbody id="overviewRunRows"></tbody></table></div></section>
-              <section class="panel exception-panel"><div class="panel-head"><div><h2>优先处理异常</h2><p>歧义与未匹配记录不会自动确认</p></div><button class="text-button" data-view="exceptions">进入队列</button></div><div id="overviewExceptions" class="exception-list"></div></section>
+            <section id="roleHome" class="role-home hidden"></section>
+            <div id="adminHome">
+            <section class="command-bar">
+              <div><span class="eyebrow">2026-08-01 至 2026-08-31</span><h2>每一笔钱，走到哪一步？</h2><p>订单、平台收款、结算和银行到账按原币种核对。</p></div>
+              <div class="command-side"><div id="periodBandStatus" class="period-state"></div><div id="currencyLegend" class="currency-legend"></div></div>
+            </section>
+
+            <div class="scenario-tabs" role="tablist" aria-label="资金场景">
+              <button class="scenario-tab active" type="button" data-scenario="control">全局控制</button>
+              <button class="scenario-tab" type="button" data-scenario="matched">正常核对</button>
+              <button class="scenario-tab" type="button" data-scenario="blocked">异常阻断 <b id="scenarioExceptionCount">0</b></button>
             </div>
-            <div class="scope-band"><strong>当前能力边界</strong><span>规则发布、异常解决审批、XLSX/PDF 证据包尚未实现。当前页面不会模拟这些动作。</span></div>
+
+            <section id="controlScenario" class="scenario-view active">
+              <div id="moneyFlowBoard" class="money-flow-board"></div>
+              <div class="control-grid">
+                <section class="attention-panel">
+                  <div class="panel-head"><div><span class="panel-kicker">ACTION REQUIRED</span><h2>需要你处理的资金</h2><p>这些资金尚未形成可关闭的证据链。</p></div><button class="text-button" data-view="exceptions">进入队列</button></div>
+                  <div id="overviewExceptions" class="exception-list"></div>
+                </section>
+                <section class="health-panel">
+                  <div class="panel-head"><div><span class="panel-kicker">CONTROL HEALTH</span><h2>本期控制状态</h2><p>所有数字直接来自 Foundation API。</p></div></div>
+                  <div id="controlHealth" class="control-health"></div>
+                </section>
+              </div>
+            </section>
+
+            <section id="matchedScenario" class="scenario-view">
+              <div class="story-intro"><span class="story-number">01</span><div><h2>正常核对：证据如何连起来</h2><p>选择真实匹配组，查看两侧记录、分配金额和业务日期。</p></div></div>
+              <div id="matchedCaseList" class="case-list"></div>
+              <aside id="moneyTraceDetail" class="trace-detail"></aside>
+            </section>
+
+            <section id="blockedScenario" class="scenario-view">
+              <div class="story-intro blocked"><span class="story-number">02</span><div><h2>异常阻断：系统为什么不自动放行</h2><p>金额、币种或日期无法形成唯一证据时，资金停在人工调查队列。</p></div></div>
+              <div id="blockedStory" class="blocked-story"></div>
+            </section>
+
+            <div class="scope-band"><strong>证据边界</strong><span>订单到收款、结算到银行是两条独立控制链。当前数据尚不能证明某笔订单属于哪次 payout，因此界面不会伪造端到端关联。</span></div>
+            </div>
           </section>
 
           <section id="sources" class="view">
@@ -91,6 +123,7 @@
 
     <dialog id="workspaceDialog"><form method="dialog"><div class="dialog-head"><div><h2>选择工作区</h2><p>这个账号属于多个工作区。</p></div></div><div id="workspaceChoices" class="workspace-choices"></div><button class="button ghost wide" value="cancel">取消</button></form></dialog>
     <dialog id="closeDialog"><form id="closeForm"><div class="dialog-head"><div><h2>锁定会计期间</h2><p>选择本期间内要纳入证据快照的已完成运行。</p></div><button class="icon-button" type="button" data-close-dialog title="关闭">×</button></div><div id="closeRunChoices" class="run-choices"></div><div class="warning-box">锁定后普通写操作不能改变该期间，重新开账会创建新版本。</div><div class="dialog-actions"><button class="button ghost" type="button" data-close-dialog>取消</button><button class="button danger" type="submit">确认锁定</button></div></form></dialog>
+    <dialog id="periodArchiveDialog" class="archive-dialog"><div class="archive-dialog-shell"><div class="dialog-head archive-dialog-head"><div><span class="eyebrow">CLOSE EVIDENCE</span><h2 id="periodArchiveTitle">月结档案</h2><p id="periodArchiveSubtitle">检查期间锁定证据与 manifest。</p></div><button class="icon-button" type="button" data-archive-dialog title="关闭档案">×</button></div><div id="periodArchiveContent" class="archive-content"></div></div></dialog>
     <div id="toast" role="status" aria-live="polite"></div>
     <script type="module" src="/console/app.js"></script>
   </body>

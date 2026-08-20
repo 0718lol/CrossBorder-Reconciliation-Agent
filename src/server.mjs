@@ -9,7 +9,8 @@ import { importCsv } from "./import-service.mjs";
 import { runReconciliation } from "./recon-service.mjs";
 import { closePeriod, createPeriod, reopenPeriod } from "./close-service.mjs";
 import { createSessionForCredentials } from "./session-service.mjs";
-import { getWorkspaceSnapshot, listExceptions, listSources } from "./workspace-service.mjs";
+import { demoAccounts } from "./demo-accounts.mjs";
+import { getMoneyFlow, getPeriodArchive, getWorkspaceSnapshot, listExceptions, listSources } from "./workspace-service.mjs";
 
 const config = loadConfig();
 const pool = createDatabase(config.databaseUrl);
@@ -31,7 +32,13 @@ app.get("/health", async () => {
 app.get("/", async (_request, reply) => reply.redirect("/console/"));
 app.get("/console/", async (_request, reply) => sendConsoleAsset(reply, "index.html", "text/html; charset=utf-8"));
 app.get("/console/app.js", async (_request, reply) => sendConsoleAsset(reply, "app.js", "text/javascript; charset=utf-8"));
+app.get("/console/role-model.js", async (_request, reply) => sendConsoleAsset(reply, "role-model.js", "text/javascript; charset=utf-8"));
 app.get("/console/styles.css", async (_request, reply) => sendConsoleAsset(reply, "styles.css", "text/css; charset=utf-8"));
+
+app.get("/v1/demo-accounts", async (_request, reply) => {
+  if (!config.demoMode) return reply.code(404).send(errorBody("NOT_FOUND", "demo-mode-disabled"));
+  return { data: demoAccounts.map(({ role, label, description, email, password }) => ({ role, label, description, email, password })) };
+});
 
 app.post("/v1/bootstrap", async (request, reply) => {
   if (!config.bootstrapToken || !secretsEqual(request.headers["x-bootstrap-token"], config.bootstrapToken)) return reply.code(403).send(errorBody("FORBIDDEN", request.requestId));
@@ -119,6 +126,12 @@ app.get("/v1/tenants/:tenantId/sources", async (request, reply) => {
   const identity = await requireIdentity(request, reply, ["operator", "reviewer", "admin", "auditor"]);
   if (!identity) return;
   return { data: await listSources(pool, identity.tenantId) };
+});
+
+app.get("/v1/tenants/:tenantId/money-flow", async (request, reply) => {
+  const identity = await requireIdentity(request, reply, ["operator", "reviewer", "admin", "auditor"]);
+  if (!identity) return;
+  return getMoneyFlow(pool, identity.tenantId);
 });
 
 app.get("/v1/tenants/:tenantId/exceptions", async (request, reply) => {
@@ -223,6 +236,14 @@ app.get("/v1/tenants/:tenantId/periods", async (request, reply) => {
     [identity.tenantId],
   );
   return { data: result.rows };
+});
+
+app.get("/v1/tenants/:tenantId/periods/:periodId", async (request, reply) => {
+  const identity = await requireIdentity(request, reply, ["reviewer", "admin", "auditor"]);
+  if (!identity) return;
+  const archive = await getPeriodArchive(pool, identity.tenantId, request.params.periodId);
+  if (!archive) return reply.code(404).send(errorBody("PERIOD_NOT_FOUND", request.requestId));
+  return archive;
 });
 
 app.setErrorHandler((error, request, reply) => {

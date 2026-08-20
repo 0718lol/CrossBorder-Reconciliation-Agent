@@ -42,6 +42,64 @@ export async function listSources(pool, tenantId) {
   return result.rows;
 }
 
+export async function getPeriodArchive(pool, tenantId, periodId) {
+  const result = await pool.query(
+    `SELECT id, period_start, period_end, version, status, parent_period_id, manifest_sha256,
+            snapshot, reopen_reason, created_by, closed_by, created_at, locked_at
+       FROM close_periods WHERE tenant_id = $1 AND id = $2`,
+    [tenantId, periodId],
+  );
+  return result.rows[0] || null;
+}
+
+export async function getMoneyFlow(pool, tenantId) {
+  const [stages, cases] = await Promise.all([
+    pool.query(
+      `SELECT source_type, record_type, currency, count(*)::int AS record_count,
+              COALESCE(sum(gross_minor), 0)::text AS gross_minor,
+              COALESCE(sum(fee_minor), 0)::text AS fee_minor,
+              COALESCE(sum(net_minor), 0)::text AS net_minor
+         FROM canonical_records
+        WHERE tenant_id = $1
+        GROUP BY source_type, record_type, currency
+        ORDER BY currency, source_type, record_type`,
+      [tenantId],
+    ),
+    pool.query(
+      `WITH ranked_runs AS (
+         SELECT id, row_number() OVER (
+           PARTITION BY period_start, period_end, rule_sha256 ORDER BY completed_at DESC, id DESC
+         ) AS position
+           FROM recon_runs
+          WHERE tenant_id = $1 AND status = 'completed'
+       )
+       SELECT g.id, g.recon_run_id, g.match_type, g.currency, g.amount_minor,
+              json_agg(json_build_object(
+                'recordId', c.id,
+                'role', a.role,
+                'allocatedMinor', a.allocated_minor::text,
+                'sourceType', c.source_type,
+                'recordType', c.record_type,
+                'externalId', c.external_id,
+                'grossMinor', c.gross_minor::text,
+                'feeMinor', c.fee_minor::text,
+                'netMinor', c.net_minor::text,
+                'businessDate', COALESCE(c.value_date, c.event_at::date)
+              ) ORDER BY a.role, c.source_type, c.external_id) AS records
+         FROM match_groups g
+         JOIN ranked_runs r ON r.id = g.recon_run_id AND r.position = 1
+         JOIN record_allocations a ON a.match_group_id = g.id AND a.tenant_id = g.tenant_id
+         JOIN canonical_records c ON c.id = a.canonical_record_id AND c.tenant_id = g.tenant_id
+        WHERE g.tenant_id = $1
+        GROUP BY g.id
+        ORDER BY g.created_at DESC, g.id
+        LIMIT 20`,
+      [tenantId],
+    ),
+  ]);
+  return { stages: stages.rows, cases: cases.rows };
+}
+
 export async function listExceptions(pool, tenantId, filters = {}) {
   const params = [tenantId];
   const conditions = ["e.tenant_id = $1"];

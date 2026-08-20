@@ -9,6 +9,7 @@ import { hashPassword } from "../src/auth.mjs";
 import { importCsv } from "../src/import-service.mjs";
 import { runReconciliation } from "../src/recon-service.mjs";
 import { closePeriod, createPeriod, reopenPeriod } from "../src/close-service.mjs";
+import { getMoneyFlow, getPeriodArchive } from "../src/workspace-service.mjs";
 
 const enabled = process.env.RUN_DATABASE_TESTS === "1";
 const databaseUrl = process.env.DATABASE_URL || "postgres://hyperrecon:hyperrecon_dev_only@127.0.0.1:55432/hyperrecon";
@@ -49,6 +50,24 @@ test("reconciliation run and close lifecycle preserve financial invariants", { s
   assert.equal(run.stats.matchedSourceMinor, "2084080");
   assert.equal(run.stats.matchedTargetMinor, "2084080");
 
+  const moneyFlow = await getMoneyFlow(pool, setup.tenantId);
+  assert.equal(moneyFlow.stages.some((stage) => stage.source_type === "shopify" && stage.currency === "USD"), true);
+  assert.equal(moneyFlow.cases.length, 2);
+  assert.equal(moneyFlow.cases.every((item) => item.records.length >= 2), true);
+  assert.equal(
+    moneyFlow.cases.every((item) =>
+      item.records.every((record) =>
+        [record.allocatedMinor, record.grossMinor, record.feeMinor, record.netMinor]
+          .filter((value) => value !== null)
+          .every((value) => typeof value === "string")
+      )
+    ),
+    true,
+    "money-flow evidence must keep bigint amounts as exact decimal strings"
+  );
+  const isolatedTenant = await pool.query("INSERT INTO tenants (name) VALUES ($1) RETURNING id", [`Money Flow Isolation ${suffix}`]);
+  assert.deepEqual(await getMoneyFlow(pool, isolatedTenant.rows[0].id), { stages: [], cases: [] });
+
   const replay = await runReconciliation({ pool, tenantId: setup.tenantId, actorId: setup.userId, requestId: `${suffix}-replay`, idempotencyKey: `order-run-${suffix}`, periodStart: "2026-08-01", periodEnd: "2026-08-31", rule });
   assert.equal(replay.replayed, true);
   assert.equal(replay.runId, run.runId);
@@ -83,6 +102,11 @@ test("reconciliation run and close lifecycle preserve financial invariants", { s
   assert.match(closed.manifestSha256, /^[0-9a-f]{64}$/);
   assert.equal(closed.snapshot.runs.length, 1);
   assert.equal(closed.snapshot.files.length, 3);
+  const archive = await getPeriodArchive(pool, setup.tenantId, period.periodId);
+  assert.equal(archive.status, "locked");
+  assert.equal(archive.manifest_sha256, closed.manifestSha256);
+  assert.deepEqual(archive.snapshot, closed.snapshot);
+  assert.equal(await getPeriodArchive(pool, isolatedTenant.rows[0].id, period.periodId), null);
   const closeReplay = await closePeriod({ pool, tenantId: setup.tenantId, periodId: period.periodId, runIds: [run.runId], actorId: setup.userId, requestId: `${suffix}-close-replay` });
   assert.equal(closeReplay.replayed, true);
   assert.equal(closeReplay.manifestSha256, closed.manifestSha256);

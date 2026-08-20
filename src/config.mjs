@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 export function loadConfig(env = process.env) {
   const config = {
     port: readInteger(env.PORT, 4180, 1, 65535),
+    demoMode: env.DEMO_MODE === "true" || env.DEMO_MODE === "1",
     databaseUrl: env.DATABASE_URL || "postgres://hyperrecon:hyperrecon_dev_only@127.0.0.1:55432/hyperrecon",
     sessionTtlSeconds: readInteger(env.SESSION_TTL_SECONDS, 28800, 300, 86400),
     maxUploadBytes: readInteger(env.MAX_UPLOAD_BYTES, 10 * 1024 * 1024, 1024, 100 * 1024 * 1024),

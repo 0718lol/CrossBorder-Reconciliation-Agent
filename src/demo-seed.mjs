@@ -2,24 +2,24 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { hashPassword } from "./auth.mjs";
-import { createPeriod } from "./close-service.mjs";
 import { loadConfig } from "./config.mjs";
 import { appendAudit, createDatabase, withTransaction } from "./database.mjs";
+import { ensureDemoPeriodArchive } from "./demo-period.mjs";
 import { importCsv } from "./import-service.mjs";
 import { runReconciliation } from "./recon-service.mjs";
+import { demoAccounts } from "./demo-accounts.mjs";
 
 const config = loadConfig();
 const pool = createDatabase(config.databaseUrl);
-const email = "demo@hyperrecon.local";
-const password = "HyperRecon-Demo-2026!";
+const adminAccount = demoAccounts.find((account) => account.role === "admin");
 const requestId = `demo-seed-${randomUUID()}`;
 
 try {
   const setup = await withTransaction(pool, async (client) => {
-    const passwordHash = await hashPassword(password);
-    let user = await client.query("SELECT id FROM users WHERE lower(email) = $1 FOR UPDATE", [email]);
-    if (!user.rowCount) user = await client.query("INSERT INTO users (email, password_hash) VALUES ($1,$2) RETURNING id", [email, passwordHash]);
-    else await client.query("UPDATE users SET password_hash = $2, status = 'active' WHERE id = $1", [user.rows[0].id, passwordHash]);
+    const adminPasswordHash = await hashPassword(adminAccount.password);
+    let user = await client.query("SELECT id FROM users WHERE lower(email) = $1 FOR UPDATE", [adminAccount.email]);
+    if (!user.rowCount) user = await client.query("INSERT INTO users (email, password_hash) VALUES ($1,$2) RETURNING id", [adminAccount.email, adminPasswordHash]);
+    else await client.query("UPDATE users SET password_hash = $2, status = 'active' WHERE id = $1", [user.rows[0].id, adminPasswordHash]);
 
     const userId = user.rows[0].id;
     let tenant = await client.query(
@@ -34,6 +34,17 @@ try {
        ON CONFLICT (tenant_id, user_id) DO UPDATE SET role = 'admin'`,
       [tenantId, userId],
     );
+    for (const account of demoAccounts.filter((item) => item.role !== "admin")) {
+      const passwordHash = await hashPassword(account.password);
+      let demoUser = await client.query("SELECT id FROM users WHERE lower(email) = $1 FOR UPDATE", [account.email]);
+      if (!demoUser.rowCount) demoUser = await client.query("INSERT INTO users (email, password_hash) VALUES ($1,$2) RETURNING id", [account.email, passwordHash]);
+      else await client.query("UPDATE users SET password_hash = $2, status = 'active' WHERE id = $1", [demoUser.rows[0].id, passwordHash]);
+      await client.query(
+        `INSERT INTO tenant_members (tenant_id, user_id, role) VALUES ($1,$2,$3::member_role)
+         ON CONFLICT (tenant_id, user_id) DO UPDATE SET role = EXCLUDED.role`,
+        [tenantId, demoUser.rows[0].id, account.role],
+      );
+    }
 
     const sources = {};
     for (const sourceType of ["shopify", "stripe", "paypal", "wise", "bank"]) {
@@ -93,14 +104,13 @@ try {
       sourceAmountField: "net_minor", targetAmountField: "net_minor", sourceAbsolute: true, dateWindowDays: 3,
     },
   });
-  const period = await createPeriod({
-    pool, tenantId: setup.tenantId, actorId: setup.userId, requestId,
-    periodStart: "2026-08-01", periodEnd: "2026-08-31",
+  const periods = await ensureDemoPeriodArchive({
+    pool, tenantId: setup.tenantId, actorId: setup.userId, requestId, runId: payoutRun.runId,
   });
 
   process.stdout.write(`${JSON.stringify({
-    tenantId: setup.tenantId, tenantName: "Northstar Commerce Demo", email, password,
-    runs: [orderRun.runId, payoutRun.runId], periodId: period.periodId,
+    tenantId: setup.tenantId, tenantName: "Northstar Commerce Demo", accounts: demoAccounts.map(({ email, role }) => ({ email, role })),
+    runs: [orderRun.runId, payoutRun.runId], periods,
   }, null, 2)}\n`);
 } finally {
   await pool.end();
