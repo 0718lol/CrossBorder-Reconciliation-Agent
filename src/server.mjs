@@ -33,6 +33,13 @@ app.addHook("onRequest", async (request, reply) => {
   reply.header("x-request-id", request.requestId);
 });
 
+app.get("/live", async () => ({ status: "ok", version: "0.2.0" }));
+
+app.get("/ready", async () => {
+  await pool.query("SELECT 1");
+  return { status: "ok", version: "0.2.0" };
+});
+
 app.get("/health", async () => {
   await pool.query("SELECT 1");
   return { status: "ok", version: "0.2.0" };
