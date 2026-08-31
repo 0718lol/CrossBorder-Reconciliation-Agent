@@ -1,0 +1,3 @@
+name = "CrossBorder 对账工作台"
+start = "pnpm start"
+health = "/console/"

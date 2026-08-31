@@ -399,4 +399,4 @@ async function sendConsoleAsset(reply, filename, contentType) {
 const shutdown = async () => { await app.close(); await pool.end(); };
 process.once("SIGTERM", shutdown);
 process.once("SIGINT", shutdown);
-await app.listen({ host: "127.0.0.1", port: config.port });
+await app.listen({ host: process.env.HOST || "0.0.0.0", port: config.port });
