@@ -14,7 +14,7 @@ pnpm run migrate
 BOOTSTRAP_TOKEN=replace-with-a-long-random-value pnpm start
 ```
 
-The API binds to `127.0.0.1:4180`. PostgreSQL binds to `127.0.0.1:55432` for local development only.
+The API binds to `0.0.0.0` on `PORT` (default `4180`). PostgreSQL binds to `127.0.0.1:55432` for local development only.
 The Compose file uses DaoCloud's transparent mirror path for the Docker Official Image because Docker Hub was unreliable on the current network; the mirrored manifest preserves the upstream digest.
 
 ## Open the operations console
@@ -26,6 +26,11 @@ To load the fictional multi-currency demo workspace:
 ```sh
 pnpm run demo:seed
 ```
+
+When running under the ASteam product host, set `DEMO_MODE=true` to make the
+managed start command run the same idempotent migration and demo seed steps
+before serving the console. Production deployments must leave `DEMO_MODE` unset
+and provide their own `DATABASE_URL` and `BOOTSTRAP_TOKEN`.
 
 The seed command prints the demo login credentials. The demo fixtures contain only fictional USD, EUR, and GBP records.
 

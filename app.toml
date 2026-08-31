@@ -1,3 +1,3 @@
 name = "CrossBorder 对账工作台"
-start = "pnpm run migrate && pnpm start"
+start = "sh -c 'pnpm run migrate && if [ \"$DEMO_MODE\" = \"true\" ]; then pnpm run demo:seed; fi && exec pnpm start'"
 health = "/ready"
