@@ -29,6 +29,20 @@ pnpm run demo:seed
 
 The seed command prints the demo login credentials. The demo fixtures contain only fictional USD, EUR, and GBP records.
 
+## DeepSeek connectivity
+
+Copy the DeepSeek settings from `.env.example` into the ignored local `.env` file and set `DEEPSEEK_API_KEY`. The service-side adapter defaults to the official `deepseek-v4-flash` model with thinking disabled and never exposes the API key to the browser.
+
+Run a minimal request containing no tenant or financial data:
+
+```sh
+pnpm run ai:smoke
+```
+
+This probe validates credentials, model availability, response shape, and token usage. It does not let AI change reconciliation facts, exception decisions, approvals, or period-close state.
+
+Operators and reviewers can also request a structured AI investigation suggestion from an unresolved exception. Only category metadata is sent to DeepSeek; transaction amounts, currencies, dates, identifiers, tenant/user identity, notes, and proposals remain local. Successful suggestions are retained as append-only audit events and remain visibly separate from human conclusions.
+
 ## Verify
 
 ```sh
@@ -37,7 +51,7 @@ RUN_DATABASE_TESTS=1 pnpm run test:integration
 pnpm run test:all
 ```
 
-The integration suite verifies commit, content-addressed file publication, replay idempotency, injected mid-import rollback, append-only audit enforcement, cross-tenant denial, 1:1/combination/partial matching, ambiguity handling, allocation conservation, close blocking, period locking, import rejection after lock, and versioned reopen.
+The integration suite runs in an automatically created local temporary database and removes it afterward. It verifies commit, content-addressed file publication, replay idempotency, injected mid-import rollback, append-only audit enforcement, cross-tenant denial, 1:1/combination/partial matching, ambiguity handling, allocation conservation, exception ownership and four-eyes approval, close blocking, period locking, import rejection after lock, and versioned reopen.
 
 ## API surface
 
@@ -47,6 +61,8 @@ The integration suite verifies commit, content-addressed file publication, repla
 - `GET /v1/tenants/:tenantId/import-batches` lists committed batches.
 - `POST /v1/tenants/:tenantId/recon-runs` executes a fixed-period rule with an `Idempotency-Key` header.
 - `GET /v1/tenants/:tenantId/recon-runs` and `GET /v1/tenants/:tenantId/recon-runs/:runId` expose run evidence.
+- `GET /v1/tenants/:tenantId/exceptions` and `GET /v1/tenants/:tenantId/exceptions/:exceptionId` expose the tenant-scoped investigation queue and history.
+- Exception action endpoints support operator claim/release, append-only notes, versioned resolution proposals, and reviewer/admin approval or rejection with optimistic concurrency.
 - `POST /v1/tenants/:tenantId/periods` creates or returns an open period.
 - `POST /v1/tenants/:tenantId/periods/:periodId/close` locks a clean set of completed runs.
 - `POST /v1/tenants/:tenantId/periods/:periodId/reopen` creates a new period version and requires a reason.
@@ -56,4 +72,4 @@ The matcher supports 1:1, unique many-to-one, unique one-to-many, and conservati
 
 ## Current boundary
 
-This is a Foundation service, not the completed reconciliation product. It has a JSON rule contract and close manifest, but not a rule-authoring UI, exception resolution/approval workflow, `.xlsx`/PDF evidence package, S3 storage, or upstream Recon Engine API adapter. Tenant isolation is currently enforced by authorization joins and tenant-filtered queries; PostgreSQL row-level security is a production hardening item.
+This is a Foundation service, not the completed reconciliation product. It has a JSON rule contract, exception resolution/approval workflow, and close manifest, but not a rule-authoring UI, formal `.xlsx`/PDF evidence package, S3 storage, or upstream Recon Engine API adapter. Tenant isolation is currently enforced by authorization joins, tenant-filtered queries, and workflow foreign keys; PostgreSQL row-level security is a production hardening item.

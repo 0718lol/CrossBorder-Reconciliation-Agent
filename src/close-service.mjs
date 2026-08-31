@@ -39,6 +39,16 @@ export async function closePeriod({ pool, tenantId, periodId, runIds, actorId, r
     );
     if (runsResult.rowCount !== uniqueRunIds.length) throw codedError("INVALID_RUN_SET", "One or more reconciliation runs are missing");
     if (runsResult.rows.some((run) => run.status !== "completed" || day(run.period_start) !== day(period.period_start) || day(run.period_end) !== day(period.period_end))) throw codedError("INVALID_RUN_SET", "Runs must be completed for the same period");
+    const superseded = await client.query(
+      `SELECT e.recon_run_id, p.replacement_run_id
+         FROM recon_exceptions e
+         JOIN exception_resolution_proposals p ON p.exception_id = e.id AND p.tenant_id = e.tenant_id AND p.financial_impact
+         JOIN exception_resolution_decisions d ON d.proposal_id = p.id AND d.tenant_id = p.tenant_id AND d.decision = 'approved'
+        WHERE e.tenant_id = $1 AND e.recon_run_id = ANY($2::uuid[])
+        LIMIT 1`,
+      [tenantId, uniqueRunIds],
+    );
+    if (superseded.rowCount) throw codedError("INVALID_RUN_SET", "A selected run was superseded by an approved financial resolution", { replacementRunId: superseded.rows[0].replacement_run_id });
     const duplicateAllocations = await client.query(
       `SELECT canonical_record_id FROM record_allocations
         WHERE recon_run_id = ANY($1::uuid[])
@@ -48,7 +58,7 @@ export async function closePeriod({ pool, tenantId, periodId, runIds, actorId, r
     if (duplicateAllocations.rowCount) throw codedError("INVALID_RUN_SET", "Selected runs allocate the same canonical record more than once");
     const blocking = await client.query(
       `SELECT count(*)::int AS count FROM recon_exceptions
-        WHERE recon_run_id = ANY($1::uuid[]) AND status = 'open' AND severity = 'blocking'`,
+        WHERE recon_run_id = ANY($1::uuid[]) AND status <> 'resolved' AND severity = 'blocking'`,
       [uniqueRunIds],
     );
     if (blocking.rows[0].count > 0) throw codedError("CLOSE_BLOCKED", "Blocking reconciliation exceptions remain open", { blockingExceptionCount: blocking.rows[0].count });

@@ -11,9 +11,18 @@ import { closePeriod, createPeriod, reopenPeriod } from "./close-service.mjs";
 import { createSessionForCredentials } from "./session-service.mjs";
 import { demoAccounts } from "./demo-accounts.mjs";
 import { getMoneyFlow, getPeriodArchive, getWorkspaceSnapshot, listExceptions, listSources } from "./workspace-service.mjs";
+import { addExceptionNote, addInvestigationItem, adoptAiSuggestion, claimException, decideResolution, getExceptionDetail, releaseException, submitResolution, updateInvestigationItem } from "./exception-service.mjs";
+import { createDeepSeekClient } from "./ai-service.mjs";
+import { generateExceptionSuggestion } from "./ai-suggestion-service.mjs";
 
 const config = loadConfig();
 const pool = createDatabase(config.databaseUrl);
+const aiClient = config.deepseekApiKey ? createDeepSeekClient({
+  apiKey: config.deepseekApiKey,
+  baseUrl: config.deepseekBaseUrl,
+  model: config.deepseekModel,
+  timeoutMs: config.deepseekTimeoutMs,
+}) : null;
 const dummyPasswordHash = await hashPassword("foundation-dummy-password-not-an-account");
 const app = Fastify({ logger: { redact: ["req.headers.authorization", "req.headers.x-bootstrap-token", "body.password"] }, bodyLimit: config.maxUploadBytes + 1024 * 1024 });
 await app.register(multipart, { limits: { files: 1, fileSize: config.maxUploadBytes, fields: 5 } });
@@ -91,7 +100,7 @@ app.delete("/v1/sessions/current", async (request, reply) => {
 });
 
 app.post("/v1/tenants/:tenantId/sources/:sourceId/import-batches", async (request, reply) => {
-  const identity = await requireIdentity(request, reply, ["operator", "reviewer", "admin"]);
+  const identity = await requireIdentity(request, reply, ["operator", "admin"]);
   if (!identity) return;
   const source = await pool.query("SELECT source_type FROM data_sources WHERE id = $1 AND tenant_id = $2", [request.params.sourceId, identity.tenantId]);
   if (!source.rowCount) return reply.code(404).send(errorBody("SOURCE_NOT_FOUND", request.requestId));
@@ -119,13 +128,25 @@ app.get("/v1/tenants/:tenantId/import-batches", async (request, reply) => {
 app.get("/v1/tenants/:tenantId/workspace", async (request, reply) => {
   const identity = await requireIdentity(request, reply, ["operator", "reviewer", "admin", "auditor"]);
   if (!identity) return;
-  return getWorkspaceSnapshot(pool, identity.tenantId, identity.role);
+  return { ...(await getWorkspaceSnapshot(pool, identity.tenantId, identity.role)), userId: identity.userId };
 });
 
 app.get("/v1/tenants/:tenantId/sources", async (request, reply) => {
   const identity = await requireIdentity(request, reply, ["operator", "reviewer", "admin", "auditor"]);
   if (!identity) return;
   return { data: await listSources(pool, identity.tenantId) };
+});
+
+app.get("/v1/tenants/:tenantId/operators", async (request, reply) => {
+  const identity = await requireIdentity(request, reply, ["admin"]);
+  if (!identity) return;
+  const result = await pool.query(
+    `SELECT u.id, u.email FROM tenant_members tm JOIN users u ON u.id = tm.user_id
+      WHERE tm.tenant_id = $1 AND tm.role = 'operator' AND u.status = 'active'
+      ORDER BY lower(u.email)`,
+    [identity.tenantId],
+  );
+  return { data: result.rows };
 });
 
 app.get("/v1/tenants/:tenantId/money-flow", async (request, reply) => {
@@ -140,6 +161,94 @@ app.get("/v1/tenants/:tenantId/exceptions", async (request, reply) => {
   return { data: await listExceptions(pool, identity.tenantId, request.query) };
 });
 
+app.get("/v1/tenants/:tenantId/exceptions/:exceptionId", async (request, reply) => {
+  const identity = await requireIdentity(request, reply, ["operator", "reviewer", "admin", "auditor"]);
+  if (!identity) return;
+  const detail = await getExceptionDetail(pool, identity.tenantId, request.params.exceptionId);
+  if (!detail) return reply.code(404).send(errorBody("EXCEPTION_NOT_FOUND", request.requestId));
+  return detail;
+});
+
+app.post("/v1/tenants/:tenantId/exceptions/:exceptionId/claim", async (request, reply) => {
+  const identity = await requireIdentity(request, reply, ["operator", "admin"]);
+  if (!identity) return;
+  const assigneeId = identity.role === "admin" ? request.body?.assigneeId : identity.userId;
+  const result = await claimException({ pool, tenantId: identity.tenantId, exceptionId: request.params.exceptionId, actorId: identity.userId, assigneeId, expectedVersion: request.body?.expectedVersion, requestId: request.requestId });
+  return reply.code(result.replayed ? 200 : 201).send(result);
+});
+
+app.post("/v1/tenants/:tenantId/exceptions/:exceptionId/release", async (request, reply) => {
+  const identity = await requireIdentity(request, reply, ["operator"]);
+  if (!identity) return;
+  return releaseException({ pool, tenantId: identity.tenantId, exceptionId: request.params.exceptionId, actorId: identity.userId, expectedVersion: request.body?.expectedVersion, requestId: request.requestId });
+});
+
+app.post("/v1/tenants/:tenantId/exceptions/:exceptionId/notes", async (request, reply) => {
+  const identity = await requireIdentity(request, reply, ["operator", "reviewer", "admin"]);
+  if (!identity) return;
+  const result = await addExceptionNote({ pool, tenantId: identity.tenantId, exceptionId: request.params.exceptionId, actorId: identity.userId, body: request.body?.body, expectedVersion: request.body?.expectedVersion, requestId: request.requestId });
+  return reply.code(201).send(result);
+});
+
+app.post("/v1/tenants/:tenantId/exceptions/:exceptionId/resolution-proposals", async (request, reply) => {
+  const identity = await requireIdentity(request, reply, ["operator"]);
+  if (!identity) return;
+  const result = await submitResolution({ pool, tenantId: identity.tenantId, exceptionId: request.params.exceptionId, actorId: identity.userId, resolutionType: request.body?.resolutionType, summary: request.body?.summary, financialImpact: request.body?.financialImpact, replacementRunId: request.body?.replacementRunId, expectedVersion: request.body?.expectedVersion, requestId: request.requestId });
+  return reply.code(201).send(result);
+});
+
+app.post("/v1/tenants/:tenantId/exceptions/:exceptionId/resolution-decisions", async (request, reply) => {
+  const identity = await requireIdentity(request, reply, ["reviewer", "admin"]);
+  if (!identity) return;
+  const result = await decideResolution({ pool, tenantId: identity.tenantId, exceptionId: request.params.exceptionId, actorId: identity.userId, decision: request.body?.decision, reason: request.body?.reason, expectedVersion: request.body?.expectedVersion, requestId: request.requestId });
+  return reply.code(201).send(result);
+});
+
+app.post("/v1/tenants/:tenantId/exceptions/:exceptionId/ai-suggestions", async (request, reply) => {
+  const identity = await requireIdentity(request, reply, ["operator", "reviewer"]);
+  if (!identity) return;
+  const result = await generateExceptionSuggestion({
+    pool,
+    aiClient,
+    tenantId: identity.tenantId,
+    exceptionId: request.params.exceptionId,
+    actorId: identity.userId,
+    requestId: request.requestId,
+  });
+  return reply.code(201).send(result);
+});
+
+app.post("/v1/tenants/:tenantId/exceptions/:exceptionId/ai-suggestions/:auditId/adoption", async (request, reply) => {
+  const identity = await requireIdentity(request, reply, ["operator"]);
+  if (!identity) return;
+  const result = await adoptAiSuggestion({
+    pool, tenantId: identity.tenantId, exceptionId: request.params.exceptionId, actorId: identity.userId,
+    aiAuditId: request.params.auditId, decision: request.body?.decision, selectedSteps: request.body?.selectedSteps,
+    reason: request.body?.reason, expectedVersion: request.body?.expectedVersion, requestId: request.requestId,
+  });
+  return reply.code(201).send(result);
+});
+
+app.post("/v1/tenants/:tenantId/exceptions/:exceptionId/investigation-items", async (request, reply) => {
+  const identity = await requireIdentity(request, reply, ["operator"]);
+  if (!identity) return;
+  const result = await addInvestigationItem({
+    pool, tenantId: identity.tenantId, exceptionId: request.params.exceptionId, actorId: identity.userId,
+    title: request.body?.title, required: request.body?.required, expectedVersion: request.body?.expectedVersion, requestId: request.requestId,
+  });
+  return reply.code(201).send(result);
+});
+
+app.patch("/v1/tenants/:tenantId/exceptions/:exceptionId/investigation-items/:itemId", async (request, reply) => {
+  const identity = await requireIdentity(request, reply, ["operator"]);
+  if (!identity) return;
+  return updateInvestigationItem({
+    pool, tenantId: identity.tenantId, exceptionId: request.params.exceptionId, itemId: request.params.itemId,
+    actorId: identity.userId, status: request.body?.status, result: request.body?.result,
+    expectedVersion: request.body?.expectedVersion, requestId: request.requestId,
+  });
+});
+
 app.get("/v1/tenants/:tenantId/audit-events", async (request, reply) => {
   const identity = await requireIdentity(request, reply, ["admin", "auditor"]);
   if (!identity) return;
@@ -152,7 +261,7 @@ app.get("/v1/tenants/:tenantId/audit-events", async (request, reply) => {
 });
 
 app.post("/v1/tenants/:tenantId/recon-runs", async (request, reply) => {
-  const identity = await requireIdentity(request, reply, ["operator", "reviewer", "admin"]);
+  const identity = await requireIdentity(request, reply, ["operator", "admin"]);
   if (!identity) return;
   const result = await runReconciliation({
     pool,
@@ -171,9 +280,12 @@ app.get("/v1/tenants/:tenantId/recon-runs", async (request, reply) => {
   const identity = await requireIdentity(request, reply, ["operator", "reviewer", "admin", "auditor"]);
   if (!identity) return;
   const result = await pool.query(
-    `SELECT id, period_start, period_end, status, rule_sha256, engine_version, record_highwater,
-            idempotency_key, stats, error, started_at, completed_at
-       FROM recon_runs WHERE tenant_id = $1 ORDER BY started_at DESC LIMIT 100`,
+    `SELECT r.id, r.period_start, r.period_end, r.status, r.rule_sha256, r.engine_version, r.record_highwater,
+            r.idempotency_key, r.stats, r.error, r.started_at, r.completed_at,
+            (SELECT count(*)::int FROM recon_exceptions e
+              WHERE e.recon_run_id = r.id AND e.tenant_id = r.tenant_id
+                AND e.severity = 'blocking' AND e.status <> 'resolved') AS open_blocking_exception_count
+       FROM recon_runs r WHERE r.tenant_id = $1 ORDER BY r.started_at DESC LIMIT 100`,
     [identity.tenantId],
   );
   return { data: result.rows };
@@ -183,9 +295,12 @@ app.get("/v1/tenants/:tenantId/recon-runs/:runId", async (request, reply) => {
   const identity = await requireIdentity(request, reply, ["operator", "reviewer", "admin", "auditor"]);
   if (!identity) return;
   const run = await pool.query(
-    `SELECT id, period_start, period_end, status, rule_definition, rule_sha256, engine_version,
-            record_highwater, stats, error, started_at, completed_at
-       FROM recon_runs WHERE id = $1 AND tenant_id = $2`,
+    `SELECT r.id, r.period_start, r.period_end, r.status, r.rule_definition, r.rule_sha256, r.engine_version,
+            r.record_highwater, r.stats, r.error, r.started_at, r.completed_at,
+            (SELECT count(*)::int FROM recon_exceptions e
+              WHERE e.recon_run_id = r.id AND e.tenant_id = r.tenant_id
+                AND e.severity = 'blocking' AND e.status <> 'resolved') AS open_blocking_exception_count
+       FROM recon_runs r WHERE r.id = $1 AND r.tenant_id = $2`,
     [request.params.runId, identity.tenantId],
   );
   if (!run.rowCount) return reply.code(404).send(errorBody("RUN_NOT_FOUND", request.requestId));
@@ -249,8 +364,12 @@ app.get("/v1/tenants/:tenantId/periods/:periodId", async (request, reply) => {
 app.setErrorHandler((error, request, reply) => {
   request.log.error({ err: error, requestId: request.requestId }, "request failed");
   if (error.code === "23505") return reply.code(409).send(errorBody("CONFLICT", request.requestId));
-  if (["PERIOD_LOCKED", "CLOSE_BLOCKED", "INVALID_PERIOD_STATE"].includes(error.code)) return reply.code(409).send(errorBody(error.code, request.requestId, error.metadata));
-  if (["PERIOD_NOT_FOUND"].includes(error.code)) return reply.code(404).send(errorBody(error.code, request.requestId));
+  if (["PERIOD_LOCKED", "CLOSE_BLOCKED", "INVALID_PERIOD_STATE", "EXCEPTION_ALREADY_ASSIGNED", "STALE_EXCEPTION", "AI_ADOPTION_EXISTS", "INVESTIGATION_INCOMPLETE"].includes(error.code)) return reply.code(409).send(errorBody(error.code, request.requestId, error.metadata));
+  if (["PERIOD_NOT_FOUND", "EXCEPTION_NOT_FOUND", "INVESTIGATION_ITEM_NOT_FOUND"].includes(error.code)) return reply.code(404).send(errorBody(error.code, request.requestId));
+  if (["SELF_APPROVAL_FORBIDDEN"].includes(error.code)) return reply.code(403).send(errorBody(error.code, request.requestId));
+  if (["AI_NOT_CONFIGURED", "AI_PROVIDER_UNAVAILABLE", "AI_PROVIDER_TIMEOUT"].includes(error.code)) return reply.code(503).send(errorBody(error.code, request.requestId));
+  if (["AI_PROVIDER_AUTH_FAILED", "AI_PROVIDER_ERROR", "AI_PROVIDER_INVALID_RESPONSE"].includes(error.code)) return reply.code(502).send(errorBody(error.code, request.requestId));
+  if (["AI_PARTIAL_STEPS_REQUIRED", "AI_STEPS_NOT_ALLOWED"].includes(error.code)) return reply.code(400).send(errorBody(error.code, request.requestId));
   if (String(error.code || "").startsWith("INVALID_")) return reply.code(400).send(errorBody(error.code, request.requestId, error.metadata));
   return reply.code(500).send(errorBody("INTERNAL_ERROR", request.requestId));
 });

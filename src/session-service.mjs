@@ -65,6 +65,7 @@ export async function createSessionForCredentials({
 
   return {
     token,
+    userId: user.id,
     expiresAt: expiresAt.toISOString(),
     role: membership.role,
     tenantId: membership.tenant_id,

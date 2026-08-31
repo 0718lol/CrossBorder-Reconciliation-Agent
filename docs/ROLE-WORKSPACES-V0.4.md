@@ -95,6 +95,6 @@ You are modifying the HyperRecon Foundation console, a PostgreSQL-backed cross-b
   - no request failure leaves the workspace blank;
   - no console error or horizontal overflow occurs.
 
-## Known boundary after v0.4
+## Superseded boundary after v0.6
 
-This iteration differentiates real roles using existing data. Exception assignment/resolution, four-eyes approval, evidence-package export, and member/role administration remain unimplemented. Backend permissions still allow reviewers to import and start runs for compatibility even though the reviewer UI hides those controls. Tightening that backend contract requires an explicit product decision and dedicated authorization tests.
+Exception assignment/resolution and four-eyes approval are now implemented in `EXCEPTION-WORKFLOW-V0.6.md`. Reviewer import and reconciliation-start permissions have also been removed from the backend. Evidence-package export and member/role administration remain unimplemented.

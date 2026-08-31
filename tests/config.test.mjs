@@ -7,8 +7,13 @@ test("configuration has bounded numeric values", () => {
   assert.equal(config.port, 4181);
   assert.equal(config.maxUploadBytes, 4096);
   assert.equal(config.demoMode, false);
+  assert.equal(config.deepseekModel, "deepseek-v4-flash");
+  assert.equal(config.deepseekBaseUrl, "https://api.deepseek.com");
+  assert.equal(config.deepseekTimeoutMs, 15000);
   assert.equal(loadConfig({ DEMO_MODE: "true" }).demoMode, true);
   assert.equal(loadConfig({ DEMO_MODE: "1" }).demoMode, true);
   assert.throws(() => loadConfig({ PORT: "70000" }), /Invalid integer/);
   assert.throws(() => loadConfig({ MAX_UPLOAD_BYTES: "0" }), /Invalid integer/);
+  assert.throws(() => loadConfig({ DEEPSEEK_BASE_URL: "http://api.deepseek.com" }), /Invalid HTTPS URL/);
+  assert.throws(() => loadConfig({ DEEPSEEK_MODEL: "bad model" }), /Invalid DEEPSEEK_MODEL/);
 });

@@ -7,7 +7,7 @@ export async function getWorkspaceSnapshot(pool, tenantId, role) {
          (SELECT count(*)::int FROM import_batches WHERE tenant_id = $1 AND status = 'committed') AS import_count,
          (SELECT count(*)::int FROM canonical_records WHERE tenant_id = $1) AS record_count,
          (SELECT count(*)::int FROM recon_runs WHERE tenant_id = $1 AND status = 'completed') AS run_count,
-         (SELECT count(*)::int FROM recon_exceptions WHERE tenant_id = $1 AND status = 'open') AS open_exception_count,
+         (SELECT count(*)::int FROM recon_exceptions WHERE tenant_id = $1 AND status <> 'resolved') AS open_exception_count,
          (SELECT count(*)::int FROM close_periods WHERE tenant_id = $1 AND status = 'locked') AS locked_period_count`,
       [tenantId],
     ),
@@ -103,8 +103,9 @@ export async function getMoneyFlow(pool, tenantId) {
 export async function listExceptions(pool, tenantId, filters = {}) {
   const params = [tenantId];
   const conditions = ["e.tenant_id = $1"];
+  if (filters.status === "active") conditions.push("e.status <> 'resolved'");
   for (const [column, value, allowed] of [
-    ["e.status", filters.status, new Set(["open", "resolved"])],
+    ["e.status", filters.status === "active" ? null : filters.status, new Set(["open", "investigating", "pending_review", "resolved"])],
     ["e.severity", filters.severity, new Set(["warning", "blocking"])],
     ["e.currency", filters.currency, new Set(["USD", "EUR", "GBP", "HKD"])],
   ]) {
@@ -115,13 +116,26 @@ export async function listExceptions(pool, tenantId, filters = {}) {
   }
   const result = await pool.query(
     `SELECT e.id, e.recon_run_id, e.canonical_record_id, e.exception_type, e.severity,
-            e.status, e.amount_minor, e.currency, e.details, e.created_at,
+            e.status, e.amount_minor, e.currency, e.details, e.assignee_id, e.assigned_at,
+            e.workflow_version, e.resolved_by, e.resolved_at, e.created_at,
+            au.email AS assignee_email, ru.email AS resolved_by_email,
             c.external_id, c.source_type, c.record_type,
             COALESCE(c.value_date, c.event_at::date) AS business_date,
-            r.period_start, r.period_end, r.rule_sha256
+            r.period_start, r.period_end, r.rule_sha256,
+            COALESCE(ai.ai_suggestion_count, 0) AS ai_suggestion_count
        FROM recon_exceptions e
        JOIN recon_runs r ON r.id = e.recon_run_id AND r.tenant_id = e.tenant_id
        LEFT JOIN canonical_records c ON c.id = e.canonical_record_id AND c.tenant_id = e.tenant_id
+       LEFT JOIN users au ON au.id = e.assignee_id
+       LEFT JOIN users ru ON ru.id = e.resolved_by
+       LEFT JOIN (
+         SELECT object_id, count(*)::int AS ai_suggestion_count
+           FROM audit_events
+          WHERE tenant_id = $1
+            AND object_type = 'recon_exception'
+            AND action = 'ai.exception_suggestion_generated'
+          GROUP BY object_id
+       ) ai ON ai.object_id = e.id::text
       WHERE ${conditions.join(" AND ")}
       ORDER BY CASE e.severity WHEN 'blocking' THEN 0 ELSE 1 END, e.created_at DESC, e.id
       LIMIT 200`,

@@ -26,11 +26,13 @@ export async function withTransaction(pool, callback) {
 }
 
 export async function appendAudit(client, { tenantId = null, actorId = null, action, objectType, objectId, requestId = null, reason = null, metadata = {} }) {
-  await client.query(
+  const result = await client.query(
     `INSERT INTO audit_events (tenant_id, actor_id, action, object_type, object_id, request_id, reason, metadata)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)`,
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
+     RETURNING id, created_at`,
     [tenantId, actorId, action, objectType, String(objectId), requestId, reason, JSON.stringify(metadata)],
   );
+  return result.rows[0];
 }
 
 export async function authorizeRequest(pool, tokenHash, tenantId, allowedRoles) {

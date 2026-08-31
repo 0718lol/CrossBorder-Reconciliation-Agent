@@ -5,9 +5,10 @@ const state = {
   session: readSession(),
   pendingCredentials: null,
   workspace: null,
-  sources: [], imports: [], runs: [], exceptions: [], periods: [], audit: [], moneyFlow: { stages: [], cases: [] },
+  sources: [], imports: [], runs: [], exceptions: [], periods: [], audit: [], operators: [], moneyFlow: { stages: [], cases: [] },
   selectedPeriodId: null,
   selectedCaseId: null,
+  selectedExceptionId: null,
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -23,6 +24,12 @@ const actionLabels = {
   "tenant.bootstrapped": "工作区初始化", "session.created": "用户登录", "import_batch.committed": "导入批次提交",
   "recon_run.completed": "对账运行完成", "recon_run.failed": "对账运行失败", "close_period.created": "月结期间创建",
   "close_period.locked": "月结期间锁定", "close_period.reopened": "月结重新开账", "demo.seeded": "虚构样本初始化",
+  "exception.claimed": "异常已领取", "exception.released": "异常已退回共享队列", "exception.note_added": "调查备注已添加",
+  "exception.resolution_submitted": "处理方案已提交", "exception.resolution_approved": "处理方案已批准", "exception.resolution_rejected": "处理方案已驳回",
+  "ai.exception_suggestion_generated": "AI 调查建议已生成",
+  "exception.ai_adoption_recorded": "AI 建议使用结果已记录",
+  "exception.investigation_item_added": "调查清单项目已添加",
+  "exception.investigation_item_updated": "调查清单项目已更新",
 };
 
 function readSession() {
@@ -68,11 +75,12 @@ async function loadAll() {
   const base = `/v1/tenants/${encodeURIComponent(state.session.tenantId)}`;
   const profile = getRoleProfile(state.session.role);
   try {
-    const [workspace, sources, imports, runs, exceptions, periods, audit, moneyFlow] = await Promise.all([
+    const [workspace, sources, imports, runs, exceptions, periods, audit, operators, moneyFlow] = await Promise.all([
       api(`${base}/workspace`), api(`${base}/sources`), api(`${base}/import-batches`), api(`${base}/recon-runs`),
-      api(`${base}/exceptions?status=open`),
+      api(`${base}/exceptions?status=active`),
       canRead(profile, "periods") ? api(`${base}/periods`) : Promise.resolve({ data: [] }),
       canRead(profile, "audit") ? api(`${base}/audit-events`) : Promise.resolve({ data: [] }),
+      canRead(profile, "operators") ? api(`${base}/operators`) : Promise.resolve({ data: [] }),
       api(`${base}/money-flow`),
     ]);
     state.workspace = workspace;
@@ -82,6 +90,7 @@ async function loadAll() {
     state.exceptions = exceptions.data;
     state.periods = periods.data;
     state.audit = audit.data;
+    state.operators = operators.data;
     state.moneyFlow = moneyFlow;
     renderAll();
     $("#apiStatus").textContent = "连接正常";
@@ -132,7 +141,7 @@ function renderOverview() {
   $("#periodBandStatus").innerHTML = latestPeriod ? status(latestPeriod.status, latestPeriod.status === "locked" ? "已锁定" : "待月结") : status("warning", "尚未建期");
   $("#currencyLegend").innerHTML = state.workspace.currencies.map((item) => `<span class="currency-chip">${escapeHtml(item.currency)}<b>${item.record_count} 条</b></span>`).join("") || `<span class="currency-chip">暂无币种</span>`;
   $("#moneyFlowBoard").innerHTML = renderMoneyFlowBoard();
-  $("#overviewExceptions").innerHTML = state.exceptions.slice(0, 4).map((item) => `<button class="exception-item" type="button" data-overview-exception="${escapeHtml(item.id)}"><span class="exception-signal"></span><div><strong>${escapeHtml(actionableException(item))}</strong><small>${escapeHtml(item.external_id || "无外部流水号")} · ${escapeHtml(sourceLabels[item.source_type] || item.source_type || "未知来源")}</small></div>${item.currency && item.amount_minor !== null ? `<b>${formatMinor(item.amount_minor, item.currency)}</b>` : status(item.severity, "需调查")}</button>`).join("") || `<div class="empty-detail compact-empty"><strong>没有开放异常</strong><p>当前运行未发现阻断项。</p></div>`;
+  $("#overviewExceptions").innerHTML = state.exceptions.slice(0, 4).map((item) => `<button class="exception-item" type="button" data-overview-exception="${escapeHtml(item.id)}"><span class="exception-signal"></span><div><strong>${escapeHtml(actionableException(item))}</strong><small>${escapeHtml(item.external_id || "无外部流水号")} · ${escapeHtml(sourceLabels[item.source_type] || item.source_type || "未知来源")} · ${aiSuggestionLabel(item)}</small></div>${item.currency && item.amount_minor !== null ? `<b>${formatMinor(item.amount_minor, item.currency)}</b>` : status(item.severity, "需调查")}</button>`).join("") || `<div class="empty-detail compact-empty"><strong>没有开放异常</strong><p>当前运行未发现阻断项。</p></div>`;
   $("#controlHealth").innerHTML = [
     ["数据入口", counts.source_count, "个渠道与银行"], ["标准记录", counts.record_count, "条保留原始血缘"],
     ["完成运行", counts.run_count, "次确定性执行"], ["月结状态", counts.open_exception_count ? "阻断" : "可检查", counts.open_exception_count ? `${counts.open_exception_count} 条异常待处理` : "没有开放异常"],
@@ -191,7 +200,7 @@ function renderReviewerHome() {
       <section class="close-readiness ${ready ? "ready" : "blocked"}"><span class="panel-kicker">CLOSE READINESS</span><strong>${ready ? "可以进入锁定检查" : "本期暂不能锁定"}</strong><p>${ready ? "没有开放阻断异常，仍需选择本期完整运行证据。" : `${counts.open_exception_count} 条开放异常仍在阻断月结。`}</p><button class="button ${ready ? "primary" : "ghost"}" type="button" data-role-view="periods">检查月结条件</button></section>
       <section class="role-work-panel"><header><div><span class="panel-kicker">REVIEW QUEUE</span><h2>需要复核的异常</h2></div><button class="text-button" type="button" data-role-view="exceptions">查看证据</button></header>${renderRoleExceptions("没有开放异常，可以继续检查运行完整性。")}</section>
       <section class="role-work-panel wide"><header><div><span class="panel-kicker">RUN EVIDENCE</span><h2>本期运行证据</h2></div><button class="text-button" type="button" data-role-view="runs">检查全部结果</button></header><div class="role-run-grid">${state.runs.slice(0, 4).map(roleRunSummary).join("") || roleEmpty("还没有对账运行")}</div></section>
-    </div>${roleBoundary("经办与复核分离", "复核工作台不提供导入和发起对账入口。当前后端为兼容旧契约仍保留 reviewer 写权限，后续需单独确认是否强制收紧。")}`;
+    </div>${roleBoundary("经办与复核分离", "复核人只审核处理方案和执行月结，后端同样禁止复核人导入文件或发起对账。")}`;
 }
 
 function renderAuditorHome() {
@@ -214,7 +223,7 @@ function roleCommand(variant, kicker, title, description, badge) {
   return `<section class="role-command ${variant}"><div><span class="eyebrow">${escapeHtml(kicker)}</span><h2>${escapeHtml(title)}</h2><p>${escapeHtml(description)}</p></div><span class="role-posture">${escapeHtml(badge)}</span></section>`;
 }
 function roleStat([label, value, note, view]) { return `<${view ? "button" : "div"} class="role-stat" ${view ? `type="button" data-role-view="${view}"` : ""}><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(note)}</small></${view ? "button" : "div"}>`; }
-function roleRunSummary(item) { return `<button class="role-run" type="button" data-role-view="runs"><span>${escapeHtml(item.period_start)} 至 ${escapeHtml(item.period_end)}</span><strong>${item.stats?.groupCount ?? 0} 个匹配组</strong><small>${item.stats?.blockingExceptionCount ?? 0} 条阻断异常 · ${runStatus(item.status)}</small></button>`; }
+function roleRunSummary(item) { return `<button class="role-run" type="button" data-role-view="runs"><span>${escapeHtml(item.period_start)} 至 ${escapeHtml(item.period_end)}</span><strong>${item.stats?.groupCount ?? 0} 个匹配组</strong><small>${blockingCount(item)} 条当前阻断异常 · ${runStatus(item.status)}</small></button>`; }
 function renderRoleExceptions(emptyText) { return `<div class="role-rows">${state.exceptions.slice(0, 4).map((item) => `<button class="role-row actionable" type="button" data-role-view="exceptions"><div><strong>${escapeHtml(actionableException(item))}</strong><small>${escapeHtml(item.external_id || "无外部流水号")} · ${escapeHtml(sourceLabels[item.source_type] || item.source_type || "未知来源")}</small></div><b>${item.currency && item.amount_minor !== null ? formatMinor(item.amount_minor, item.currency) : "待确认"}</b></button>`).join("") || roleEmpty(emptyText)}</div>`; }
 function roleEmpty(text) { return `<div class="role-empty">${escapeHtml(text)}</div>`; }
 function roleBoundary(title, text) { return `<div class="role-boundary"><strong>${escapeHtml(title)}</strong><span>${escapeHtml(text)}</span></div>`; }
@@ -287,11 +296,16 @@ function renderRuns() {
   $("#runRows").innerHTML = state.runs.map((item) => `<tr data-selectable data-run-id="${escapeHtml(item.id)}"><td><strong>${escapeHtml(item.id.slice(0, 8))}</strong><small>${formatDateTime(item.started_at)}</small></td>${runCells(item)}</tr>`).join("") || emptyRow(6, "尚无对账运行");
 }
 
-function runRow(item) { return `<tr data-selectable data-run-id="${escapeHtml(item.id)}"><td><strong>${escapeHtml(item.period_start)} 至 ${escapeHtml(item.period_end)}</strong><small>${escapeHtml(item.id.slice(0, 8))}</small></td><td>${status(item.status, runStatus(item.status))}</td><td>${item.stats?.groupCount ?? 0}</td><td>${item.stats?.blockingExceptionCount ?? 0}</td><td>${formatDateTime(item.completed_at)}</td></tr>`; }
-function runCells(item) { return `<td><strong>${escapeHtml(item.period_start)} 至 ${escapeHtml(item.period_end)}</strong></td><td>${status(item.status, runStatus(item.status))}</td><td>${item.stats?.groupCount ?? 0}</td><td>${item.stats?.blockingExceptionCount ?? 0}</td><td class="mono">${escapeHtml(shortHash(item.rule_sha256))}</td>`; }
+function runRow(item) { return `<tr data-selectable data-run-id="${escapeHtml(item.id)}"><td><strong>${escapeHtml(item.period_start)} 至 ${escapeHtml(item.period_end)}</strong><small>${escapeHtml(item.id.slice(0, 8))}</small></td><td>${status(item.status, runStatus(item.status))}</td><td>${item.stats?.groupCount ?? 0}</td><td>${blockingCount(item)}</td><td>${formatDateTime(item.completed_at)}</td></tr>`; }
+function runCells(item) { return `<td><strong>${escapeHtml(item.period_start)} 至 ${escapeHtml(item.period_end)}</strong></td><td>${status(item.status, runStatus(item.status))}</td><td>${item.stats?.groupCount ?? 0}</td><td>${blockingCount(item)}</td><td class="mono">${escapeHtml(shortHash(item.rule_sha256))}</td>`; }
 
 function renderExceptions() {
-  $("#exceptionRows").innerHTML = state.exceptions.map((item) => `<tr data-selectable data-exception-id="${escapeHtml(item.id)}"><td>${status(item.severity, item.severity === "blocking" ? "阻断" : "警告")}</td><td><strong>${escapeHtml(item.external_id || "无外部流水号")}</strong><small>${escapeHtml(item.id.slice(0, 8))}</small></td><td>${escapeHtml(sourceLabels[item.source_type] || item.source_type || "未知")}</td><td>${escapeHtml(exceptionLabel(item.exception_type))}</td><td>${item.currency && item.amount_minor !== null ? formatMinor(item.amount_minor, item.currency) : "-"}</td><td>${escapeHtml(item.business_date || "-")}</td></tr>`).join("") || emptyRow(6, "当前筛选下没有异常");
+  $("#exceptionRows").innerHTML = state.exceptions.map((item) => `<tr data-selectable data-exception-id="${escapeHtml(item.id)}"><td>${status(item.severity, item.severity === "blocking" ? "阻断" : "警告")}</td><td><strong>${escapeHtml(item.external_id || "无外部流水号")}</strong><small>${escapeHtml(sourceLabels[item.source_type] || item.source_type || "未知来源")} · ${escapeHtml(item.id.slice(0, 8))}</small></td><td>${status(item.status, workflowStatus(item.status))}</td><td>${escapeHtml(item.assignee_email || "共享队列")}</td><td>${escapeHtml(exceptionLabel(item.exception_type))}</td><td>${Number(item.ai_suggestion_count) > 0 ? status("completed", aiSuggestionLabel(item)) : status("warning", "未生成")}</td><td>${item.currency && item.amount_minor !== null ? formatMinor(item.amount_minor, item.currency) : "-"}</td><td>${escapeHtml(item.business_date || "-")}</td></tr>`).join("") || emptyRow(8, "当前筛选下没有异常");
+}
+
+function aiSuggestionLabel(item) {
+  const count = Number(item.ai_suggestion_count) || 0;
+  return count > 0 ? `AI 建议 ${count} 条` : "暂无 AI 建议";
 }
 
 function renderPeriods() {
@@ -320,11 +334,65 @@ async function showRunDetail(runId) {
   $("#runDetail").innerHTML = `<div class="detail-head"><span>运行证据</span><h3>${escapeHtml(detail.id)}</h3></div><div class="detail-section"><h4>固定上下文</h4><div class="detail-grid"><div><span>期间</span><strong>${escapeHtml(detail.period_start)} 至 ${escapeHtml(detail.period_end)}</strong></div><div><span>引擎</span><strong>${escapeHtml(detail.engine_version)}</strong></div><div><span>记录水位</span><strong>${formatDateTime(detail.record_highwater)}</strong></div><div><span>规则哈希</span><strong class="mono">${escapeHtml(shortHash(detail.rule_sha256))}</strong></div></div></div><div class="detail-section"><h4>匹配分配</h4>${groups}</div><div class="detail-section"><h4>阻断异常</h4><strong>${detail.exceptions.length} 条</strong></div>`;
 }
 
-function showExceptionDetail(id) {
-  const item = state.exceptions.find((value) => value.id === id);
-  if (!item) return;
-  $("#exceptionDetail").innerHTML = `<div class="detail-head"><span>${escapeHtml(item.severity === "blocking" ? "阻断异常" : "警告")}</span><h3>${escapeHtml(item.external_id || item.id)}</h3></div><div class="detail-section"><h4>异常信息</h4><div class="detail-grid"><div><span>类型</span><strong>${escapeHtml(exceptionLabel(item.exception_type))}</strong></div><div><span>状态</span><strong>${escapeHtml(item.status)}</strong></div><div><span>来源</span><strong>${escapeHtml(sourceLabels[item.source_type] || item.source_type || "未知")}</strong></div><div><span>金额</span><strong>${item.currency && item.amount_minor !== null ? formatMinor(item.amount_minor, item.currency) : "-"}</strong></div><div><span>业务日期</span><strong>${escapeHtml(item.business_date || "-")}</strong></div><div><span>记录类型</span><strong>${escapeHtml(item.record_type || "-")}</strong></div></div></div><div class="detail-section"><h4>引擎说明</h4><p>${escapeHtml(detailText(item))}</p></div><div class="scope-band"><strong>处理受限</strong><span>负责人、备注、解决方案和四眼审批尚未实现，当前只能查看证据。</span></div>`;
+async function showExceptionDetail(id) {
+  state.selectedExceptionId = id;
+  const item = await api(`/v1/tenants/${encodeURIComponent(state.session.tenantId)}/exceptions/${encodeURIComponent(id)}`);
+  const profile = getRoleProfile(state.session.role);
+  const isMine = item.assignee_id === (state.session.userId || state.workspace.userId);
+  const replacementRuns = state.runs.filter((run) => run.id !== item.recon_run_id && run.status === "completed" && run.period_start === item.period_start && run.period_end === item.period_end && blockingCount(run) === 0);
+  const notes = item.notes.map((note) => `<article class="workflow-event"><div><strong>${escapeHtml(note.author_email)}</strong><time>${formatDateTime(note.created_at)}</time></div><p>${escapeHtml(note.body)}</p></article>`).join("") || `<p class="workflow-empty">尚无调查备注。</p>`;
+  const proposals = item.proposals.map((proposal) => `<article class="workflow-event proposal"><div><strong>方案 v${proposal.proposal_version} · ${escapeHtml(resolutionLabel(proposal.resolution_type))}</strong>${status(proposal.decision || "pending_review", proposal.decision ? decisionLabel(proposal.decision) : "待复核")}</div><p>${escapeHtml(proposal.summary)}</p><small>${escapeHtml(proposal.submitted_by_email)} · ${formatDateTime(proposal.created_at)}${proposal.replacement_run_id ? ` · 新运行 ${escapeHtml(proposal.replacement_run_id.slice(0, 8))}` : ""}</small>${proposal.decision_reason ? `<blockquote>${escapeHtml(proposal.decision_reason)}</blockquote>` : ""}</article>`).join("") || `<p class="workflow-empty">尚未提交处理方案。</p>`;
+  const canAdopt = item.status === "investigating" && isMine && can(profile, "exception_submit");
+  const adoptionsByAudit = new Map((item.adoptions || []).map((adoption) => [String(adoption.ai_audit_id), adoption]));
+  const aiSuggestions = (item.aiSuggestions || []).map((suggestion) => renderAiSuggestion(suggestion, adoptionsByAudit.get(String(suggestion.auditId)), canAdopt)).join("") || `<p class="workflow-empty">尚未生成 AI 调查建议。</p>`;
+  const investigationItems = renderInvestigationItems(item.investigationItems || [], canAdopt);
+  const manualItemForm = canAdopt ? `<form data-add-investigation-item class="workflow-form investigation-add"><label>新增人工检查项<input name="title" minlength="2" maxlength="500" required /></label><label class="check-control"><input name="required" type="checkbox" checked />提交复核前必须完成</label><button class="button ghost" type="submit">加入清单</button></form>` : "";
+  const aiAction = can(profile, "ai_suggest") && item.status !== "resolved" ? `<div class="ai-suggestion-action"><div><strong>AI 调查助手</strong><small>仅发送异常分类元数据，不发送金额、币种、日期、流水号、租户、人员或人工备注。</small></div><button class="button ghost" type="button" data-generate-ai-suggestion>生成建议</button></div>` : "";
+  let actions = "";
+  if (item.status === "open" && can(profile, "exception_claim")) actions = `<button class="button primary" type="button" data-claim-exception>领取处理</button>`;
+  if (item.status === "open" && can(profile, "exception_assign")) actions = `<form data-assign-exception class="workflow-form"><label>分派给操作员<select name="assigneeId" required>${state.operators.map((operator) => `<option value="${escapeHtml(operator.id)}">${escapeHtml(operator.email)}</option>`).join("")}</select></label><button class="button primary" type="submit">确认分派</button></form>`;
+  if (item.status === "investigating" && isMine && can(profile, "exception_submit")) actions = `${noteForm()}<form data-submit-resolution class="workflow-form"><label>处理类型<select name="resolutionType"><option value="timing_difference">到账时间差</option><option value="fee_difference">手续费差异</option><option value="duplicate_record">重复记录</option><option value="manual_link">人工关联</option><option value="source_correction">来源数据更正</option><option value="other">其他</option></select></label><label>调查结论<textarea name="summary" minlength="10" maxlength="2000" required></textarea></label><label class="check-control"><input name="financialImpact" type="checkbox" />会改变金额或匹配关系</label><label>对应的新对账运行<select name="replacementRunId"><option value="">不需要</option>${replacementRuns.map((run) => `<option value="${escapeHtml(run.id)}">${escapeHtml(run.id.slice(0, 8))} · ${run.stats?.groupCount || 0} 个匹配组</option>`).join("")}</select></label><div class="form-actions"><button class="button ghost" type="button" data-release-exception>退回共享队列</button><button class="button primary" type="submit">提交复核</button></div></form>`;
+  if (item.status === "pending_review" && can(profile, "exception_review")) actions = `${noteForm()}<form data-decide-resolution class="workflow-form"><label>复核意见<textarea name="reason" maxlength="2000" placeholder="驳回时至少填写 10 个字"></textarea></label><div class="form-actions"><button class="button danger" name="decision" value="rejected" type="submit">驳回</button><button class="button primary" name="decision" value="approved" type="submit">批准</button></div></form>`;
+  if (!actions && item.status !== "resolved") actions = `<div class="scope-band"><strong>当前步骤</strong><span>${item.assignee_email ? `由 ${escapeHtml(item.assignee_email)} 处理，其他人可以查看但不能重复提交。` : "等待操作员领取。"}</span></div>`;
+  $("#exceptionDetail").innerHTML = `<div class="detail-head"><span>${escapeHtml(item.severity === "blocking" ? "阻断异常" : "警告")}</span><h3>${escapeHtml(item.external_id || item.id)}</h3></div><div class="detail-section"><h4>异常信息</h4><div class="detail-grid"><div><span>类型</span><strong>${escapeHtml(exceptionLabel(item.exception_type))}</strong></div><div><span>状态</span><strong>${escapeHtml(workflowStatus(item.status))}</strong></div><div><span>负责人</span><strong>${escapeHtml(item.assignee_email || "共享队列")}</strong></div><div><span>金额</span><strong>${item.currency && item.amount_minor !== null ? formatMinor(item.amount_minor, item.currency) : "-"}</strong></div><div><span>业务日期</span><strong>${escapeHtml(item.business_date || "-")}</strong></div><div><span>版本</span><strong>v${item.workflow_version}</strong></div></div></div><div class="detail-section"><h4>引擎说明</h4><p>${escapeHtml(detailText(item))}</p></div><div class="detail-section ai-suggestion-section"><div class="detail-section-title"><h4>AI 调查建议</h4><span>只读参考</span></div>${aiAction}<div class="workflow-history">${aiSuggestions}</div></div><div class="detail-section investigation-section"><div class="detail-section-title"><h4>调查清单</h4><span>人工确认</span></div>${investigationItems}${manualItemForm}</div><div class="detail-section"><h4>调查备注</h4><div class="workflow-history">${notes}</div></div><div class="detail-section"><h4>处理与复核记录</h4><div class="workflow-history">${proposals}</div></div><div class="detail-section workflow-actions" data-workflow-version="${item.workflow_version}">${actions || `<div class="scope-band"><strong>已完成</strong><span>处理方案已由 ${escapeHtml(item.resolved_by_email || "复核人")} 批准，原始记录和全部处理历史均已保留。</span></div>`}</div>`;
 }
+
+function noteForm() { return `<form data-add-note class="workflow-form"><label>追加调查备注<textarea name="body" minlength="2" maxlength="2000" required></textarea></label><button class="button ghost" type="submit">添加备注</button></form>`; }
+
+function renderAiSuggestion(item, adoption, canAdopt) {
+  const suggestion = item.suggestion || {};
+  const adoptionView = adoption
+    ? `<div class="adoption-result">${status(adoption.decision === "rejected" ? "warning" : "completed", adoptionLabel(adoption.decision))}<span>${escapeHtml(adoption.decided_by_email)} · ${formatDateTime(adoption.created_at)}</span>${adoption.reason ? `<p>原因：${escapeHtml(adoption.reason)}</p>` : ""}</div>`
+    : canAdopt ? adoptionForm(item) : `<p class="workflow-empty">等待负责人判断是否采纳。</p>`;
+  return `<article class="workflow-event ai-suggestion"><div><strong>${escapeHtml(item.model || "AI")} · ${escapeHtml(confidenceLabel(suggestion.confidence))}</strong><time>${formatDateTime(item.createdAt)}</time></div><p><b>可能原因</b>${escapeHtml(suggestion.likelyCause || "-")}</p>${suggestionGroup("已知依据", suggestion.evidence)}${suggestionGroup("待补证据", suggestion.missingEvidence)}${suggestionGroup("建议检查", suggestion.nextSteps)}${suggestionGroup("注意事项", suggestion.cautions)}<small>${escapeHtml(item.actorEmail || "-")} 生成 · 审计记录 #${escapeHtml(item.auditId)}</small>${adoptionView}</article>`;
+}
+
+function suggestionGroup(label, items) {
+  const list = Array.isArray(items) ? items : [];
+  return `<div class="ai-suggestion-group"><b>${escapeHtml(label)}</b><ul>${list.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul></div>`;
+}
+
+function adoptionForm(item) {
+  const steps = item.suggestion?.nextSteps || [];
+  const partialOption = steps.length > 1 ? `<option value="partially_accepted">部分采纳</option>` : "";
+  return `<form data-adopt-ai-suggestion data-ai-audit-id="${escapeHtml(item.auditId)}" class="workflow-form adoption-form"><label>使用方式<select name="decision"><option value="accepted">采纳全部建议</option>${partialOption}<option value="rejected">不采纳</option></select></label><fieldset data-adoption-steps><legend>加入调查清单的步骤</legend>${steps.map((step) => `<label class="check-control"><input type="checkbox" name="selectedSteps" value="${escapeHtml(step)}" checked disabled />${escapeHtml(step)}</label>`).join("")}</fieldset><label>不采纳原因<textarea name="reason" minlength="2" maxlength="2000" placeholder="选择不采纳时必须填写" disabled></textarea></label><button class="button ghost" type="submit">记录使用结果</button></form>`;
+}
+
+function renderInvestigationItems(items, canEdit) {
+  if (!items.length) return `<p class="workflow-empty">尚未建立调查清单。</p>`;
+  return `<div class="investigation-list">${items.map((item) => canEdit ? renderEditableInvestigationItem(item) : renderReadonlyInvestigationItem(item)).join("")}</div>`;
+}
+
+function renderEditableInvestigationItem(item) {
+  return `<form data-update-investigation-item data-item-id="${escapeHtml(item.id)}" class="investigation-item"><div><strong>${escapeHtml(item.title)}</strong><small>${item.source === "ai" ? "来自 AI 建议" : "人工添加"} · ${item.required ? "必查" : "选查"}</small></div><label>状态<select name="status"><option value="todo" ${item.status === "todo" ? "selected" : ""}>待检查</option><option value="done" ${item.status === "done" ? "selected" : ""}>已确认</option><option value="not_applicable" ${item.status === "not_applicable" ? "selected" : ""}>不适用</option></select></label><label>检查结果<textarea name="result" maxlength="2000">${escapeHtml(item.result || "")}</textarea></label><button class="button ghost" type="submit">保存</button></form>`;
+}
+
+function renderReadonlyInvestigationItem(item) {
+  return `<article class="investigation-item readonly"><div><strong>${escapeHtml(item.title)}</strong><small>${item.source === "ai" ? "来自 AI 建议" : "人工添加"} · ${item.required ? "必查" : "选查"}</small></div>${status(item.status === "done" ? "completed" : item.status === "todo" ? "warning" : "info", investigationStatus(item.status))}<p>${escapeHtml(item.result || "尚未填写结果")}</p></article>`;
+}
+
+function adoptionLabel(value) { return ({ accepted: "已采纳", partially_accepted: "部分采纳", rejected: "未采纳" })[value] || value; }
+function investigationStatus(value) { return ({ todo: "待检查", done: "已确认", not_applicable: "不适用" })[value] || value; }
 
 async function reloadExceptions() {
   const params = new URLSearchParams();
@@ -339,7 +407,7 @@ function openCloseDialog(periodId) {
   const period = state.periods.find((item) => item.id === periodId);
   state.selectedPeriodId = periodId;
   const eligible = state.runs.filter((run) => run.status === "completed" && run.period_start === period.period_start && run.period_end === period.period_end);
-  $("#closeRunChoices").innerHTML = eligible.map((run) => `<label class="choice"><input type="checkbox" name="runId" value="${escapeHtml(run.id)}" /><span><strong>${escapeHtml(run.id.slice(0, 8))} · ${run.stats?.groupCount || 0} 个匹配组</strong><small>${run.stats?.blockingExceptionCount || 0} 条阻断异常 · ${escapeHtml(shortHash(run.rule_sha256))}</small></span></label>`).join("") || `<div class="empty-detail"><strong>没有可选运行</strong><p>先完成与期间完全一致的对账运行。</p></div>`;
+  $("#closeRunChoices").innerHTML = eligible.map((run) => `<label class="choice"><input type="checkbox" name="runId" value="${escapeHtml(run.id)}" /><span><strong>${escapeHtml(run.id.slice(0, 8))} · ${run.stats?.groupCount || 0} 个匹配组</strong><small>${blockingCount(run)} 条当前阻断异常 · ${escapeHtml(shortHash(run.rule_sha256))}</small></span></label>`).join("") || `<div class="empty-detail"><strong>没有可选运行</strong><p>先完成与期间完全一致的对账运行。</p></div>`;
   $("#closeDialog").showModal();
 }
 
@@ -422,7 +490,7 @@ function notify(message, error = false) {
 }
 
 function status(value, text) {
-  const style = ["completed", "committed", "locked"].includes(value) ? "good" : ["blocking", "failed"].includes(value) ? "bad" : ["running", "open"].includes(value) ? "info" : "warn";
+  const style = ["completed", "committed", "locked", "resolved", "approved"].includes(value) ? "good" : ["blocking", "failed", "rejected"].includes(value) ? "bad" : ["running", "open", "investigating"].includes(value) ? "info" : "warn";
   return `<span class="status ${style}">${escapeHtml(text)}</span>`;
 }
 function formatMinor(value, currency) { const amount = BigInt(value || 0); const sign = amount < 0n ? "-" : ""; const absolute = amount < 0n ? -amount : amount; return `${sign}${escapeHtml(currency)} ${(absolute / 100n).toString()}.${(absolute % 100n).toString().padStart(2, "0")}`; }
@@ -432,11 +500,16 @@ function shortHash(value) { return value ? `${String(value).slice(0, 10)}…${St
 function escapeHtml(value) { return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]); }
 function emptyRow(columns, text) { return `<tr><td class="empty-row" colspan="${columns}">${escapeHtml(text)}</td></tr>`; }
 function runStatus(value) { return ({ completed: "已完成", running: "运行中", failed: "失败" })[value] || value; }
+function blockingCount(run) { return Number(run.open_blocking_exception_count ?? run.stats?.blockingExceptionCount ?? 0); }
 function batchLabel(value) { return ({ committed: "已提交", preflight_failed: "预检失败", failed: "失败", uploaded: "已上传", ready: "待提交" })[value] || value; }
 function exceptionLabel(value) { return ({ unmatched_source: "来源记录未匹配", unmatched_target: "目标记录未匹配", ambiguous_exact: "精确候选存在歧义", ambiguous_combination: "组合候选存在歧义" })[value] || value; }
+function workflowStatus(value) { return ({ open: "待领取", investigating: "调查中", pending_review: "待复核", resolved: "已解决" })[value] || value; }
+function resolutionLabel(value) { return ({ timing_difference: "到账时间差", fee_difference: "手续费差异", duplicate_record: "重复记录", manual_link: "人工关联", source_correction: "来源数据更正", other: "其他" })[value] || value; }
+function decisionLabel(value) { return ({ approved: "已批准", rejected: "已驳回" })[value] || value; }
+function confidenceLabel(value) { return ({ low: "低置信度", medium: "中置信度", high: "高置信度" })[value] || "置信度未知"; }
 function matchType(value) { return ({ one_to_one: "一对一", many_to_one: "多对一", one_to_many: "一对多", partial: "部分匹配" })[value] || value; }
 function detailText(item) { if (item.exception_type === "unmatched_source") return "规则范围内没有找到金额、币种与日期窗口均满足的目标记录。"; if (item.exception_type === "unmatched_target") return "目标侧出现了没有对应来源记录的资金流水，需要确认漏单、跨期或来源范围。"; return `引擎拒绝自动选择候选。候选记录：${(item.details?.candidateIds || []).join(", ") || "未提供"}`; }
-function messageFor(error) { return ({ INVALID_CREDENTIALS: "邮箱或密码不正确", WORKSPACE_REQUIRED: "请选择工作区", INVALID_FILTER: "筛选条件无效", PERIOD_LOCKED: "该业务日期属于已锁定期间", CLOSE_BLOCKED: "仍有开放阻断异常，不能锁定期间", INVALID_RUN_SET: "选择的运行不能组成有效月结快照", INVALID_RULE: "对账规则配置无效", FORBIDDEN: "当前角色没有执行此操作的权限", INTERNAL_ERROR: "服务发生内部错误，请查看请求日志" })[error.code] || error.code || error.message; }
+function messageFor(error) { return ({ INVALID_CREDENTIALS: "邮箱或密码不正确", WORKSPACE_REQUIRED: "请选择工作区", INVALID_FILTER: "筛选条件无效", PERIOD_LOCKED: "该业务日期属于已锁定期间", CLOSE_BLOCKED: "仍有未获批准的阻断异常，不能锁定期间", INVALID_RUN_SET: "选择的运行不能组成有效月结快照", INVALID_RULE: "对账规则配置无效", INVALID_NOTE: "备注需填写 2 至 2000 个字", INVALID_AI_ADOPTION_REASON: "不采纳时请填写至少 2 个字的原因", AI_PARTIAL_STEPS_REQUIRED: "部分采纳必须选择至少一步，并保留至少一步不采纳", AI_ADOPTION_EXISTS: "这条 AI 建议已经记录过使用结果", INVALID_INVESTIGATION_ITEM: "检查项需填写 2 至 500 个字", INVALID_INVESTIGATION_RESULT: "完成或标记不适用时，请填写检查结果或原因", INVESTIGATION_INCOMPLETE: "还有必查项目未完成，暂时不能提交复核", INVALID_SUMMARY: "调查结论需填写 10 至 2000 个字", INVALID_REASON: "驳回原因需填写至少 10 个字", INVALID_REPLACEMENT_RUN: "涉及金额或匹配变化时，请选择同期间、无阻断异常的新对账运行", INVALID_EXCEPTION_STATE: "异常当前状态不允许此操作，请刷新后重试", INVALID_ASSIGNEE: "只能分派给当前工作区的操作员", EXCEPTION_ALREADY_ASSIGNED: "该异常已被其他操作员领取", STALE_EXCEPTION: "该异常刚刚被他人更新，请刷新后重试", SELF_APPROVAL_FORBIDDEN: "提交人不能批准自己的处理方案", AI_NOT_CONFIGURED: "AI 调查助手尚未配置", AI_PROVIDER_TIMEOUT: "AI 服务响应超时，请稍后重试", AI_PROVIDER_UNAVAILABLE: "暂时无法连接 AI 服务", AI_PROVIDER_AUTH_FAILED: "AI 服务鉴权失败，请检查本机配置", AI_PROVIDER_ERROR: "AI 服务暂时返回错误", AI_PROVIDER_INVALID_RESPONSE: "AI 返回内容未通过安全格式校验", FORBIDDEN: "当前角色没有执行此操作的权限", INTERNAL_ERROR: "服务发生内部错误，请查看请求日志" })[error.code] || error.code || error.message; }
 
 async function loadDemoAccounts() {
   try {
@@ -509,7 +582,7 @@ $("#matchedCaseList").addEventListener("click", (event) => {
 });
 for (const container of [$("#overviewExceptions"), $("#blockedStory")]) container.addEventListener("click", (event) => {
   const button = event.target.closest("[data-overview-exception]"); if (!button) return;
-  navigate("exceptions"); showExceptionDetail(button.dataset.overviewException);
+  navigate("exceptions"); showExceptionDetail(button.dataset.overviewException).catch((error) => notify(messageFor(error), true));
 });
 
 $("#uploadFile").addEventListener("change", () => { $("#uploadFilename").textContent = $("#uploadFile").files[0]?.name || "选择文件"; });
@@ -531,9 +604,89 @@ $("#runForm").addEventListener("submit", async (event) => {
 });
 
 $("#runRows").addEventListener("click", (event) => { const row = event.target.closest("[data-run-id]"); if (row) showRunDetail(row.dataset.runId).catch((error) => notify(messageFor(error), true)); });
-$("#exceptionRows").addEventListener("click", (event) => { const row = event.target.closest("[data-exception-id]"); if (row) showExceptionDetail(row.dataset.exceptionId); });
+$("#exceptionRows").addEventListener("click", (event) => { const row = event.target.closest("[data-exception-id]"); if (row) showExceptionDetail(row.dataset.exceptionId).catch((error) => notify(messageFor(error), true)); });
 $("#exceptionStatus").addEventListener("change", () => reloadExceptions().catch((error) => notify(messageFor(error), true)));
 $("#exceptionCurrency").addEventListener("change", () => reloadExceptions().catch((error) => notify(messageFor(error), true)));
+$("#exceptionDetail").addEventListener("click", async (event) => {
+  const claim = event.target.closest("[data-claim-exception]");
+  const release = event.target.closest("[data-release-exception]");
+  const aiSuggestion = event.target.closest("[data-generate-ai-suggestion]");
+  if (!claim && !release && !aiSuggestion) return;
+  try {
+    if (aiSuggestion) {
+      aiSuggestion.disabled = true;
+      aiSuggestion.textContent = "正在生成";
+      await exceptionMutation("ai-suggestions", {});
+      notify("AI 调查建议已生成并写入审计记录");
+      await refreshSelectedException();
+      return;
+    }
+    await exceptionMutation(release ? "release" : "claim", { expectedVersion: currentWorkflowVersion() });
+    notify(release ? "异常已退回共享队列" : "异常已领取，其他操作员仍可查看");
+    await refreshSelectedException();
+  } catch (error) { notify(messageFor(error), true); }
+});
+$("#exceptionDetail").addEventListener("change", (event) => {
+  const decision = event.target.closest("[data-adopt-ai-suggestion] select[name='decision']");
+  if (!decision) return;
+  const form = decision.closest("form");
+  const mode = decision.value;
+  for (const checkbox of form.querySelectorAll("input[name='selectedSteps']")) {
+    checkbox.disabled = mode !== "partially_accepted";
+    checkbox.checked = mode === "accepted";
+  }
+  const reason = form.querySelector("textarea[name='reason']");
+  reason.disabled = mode !== "rejected";
+  reason.required = mode === "rejected";
+  if (mode !== "rejected") reason.value = "";
+});
+$("#exceptionDetail").addEventListener("submit", async (event) => {
+  const form = event.target.closest("form"); if (!form) return;
+  event.preventDefault();
+  const data = new FormData(form);
+  try {
+    if (form.matches("[data-adopt-ai-suggestion]")) {
+      await exceptionMutation(`ai-suggestions/${encodeURIComponent(form.dataset.aiAuditId)}/adoption`, {
+        decision: data.get("decision"), selectedSteps: data.getAll("selectedSteps"),
+        reason: data.get("reason"), expectedVersion: currentWorkflowVersion(),
+      });
+      notify("AI 建议使用结果已记录，选中的步骤已加入调查清单");
+      await refreshSelectedException();
+      return;
+    }
+    if (form.matches("[data-add-investigation-item]")) {
+      await exceptionMutation("investigation-items", {
+        title: data.get("title"), required: data.get("required") === "on", expectedVersion: currentWorkflowVersion(),
+      });
+      notify("人工检查项已加入调查清单");
+      await refreshSelectedException();
+      return;
+    }
+    if (form.matches("[data-update-investigation-item]")) {
+      await api(`/v1/tenants/${encodeURIComponent(state.session.tenantId)}/exceptions/${encodeURIComponent(state.selectedExceptionId)}/investigation-items/${encodeURIComponent(form.dataset.itemId)}`, {
+        method: "PATCH", body: { status: data.get("status"), result: data.get("result"), expectedVersion: currentWorkflowVersion() },
+      });
+      notify("调查结果已保存");
+      await refreshSelectedException();
+      return;
+    }
+    if (form.matches("[data-assign-exception]")) await exceptionMutation("claim", { assigneeId: data.get("assigneeId"), expectedVersion: currentWorkflowVersion() });
+    if (form.matches("[data-add-note]")) await exceptionMutation("notes", { body: data.get("body"), expectedVersion: currentWorkflowVersion() });
+    if (form.matches("[data-submit-resolution]")) {
+      const financialImpact = data.get("financialImpact") === "on";
+      await exceptionMutation("resolution-proposals", { resolutionType: data.get("resolutionType"), summary: data.get("summary"), financialImpact, replacementRunId: financialImpact ? data.get("replacementRunId") || null : null, expectedVersion: currentWorkflowVersion() });
+    }
+    if (form.matches("[data-decide-resolution]")) await exceptionMutation("resolution-decisions", { decision: event.submitter?.value, reason: data.get("reason"), expectedVersion: currentWorkflowVersion() });
+    notify(form.matches("[data-decide-resolution]") ? (event.submitter?.value === "approved" ? "处理方案已批准，月结阻断已解除" : "处理方案已驳回并退回原负责人") : form.matches("[data-submit-resolution]") ? "处理方案已提交复核" : form.matches("[data-add-note]") ? "调查备注已追加" : "异常已分派");
+    await refreshSelectedException();
+  } catch (error) { notify(messageFor(error), true); }
+});
+
+async function exceptionMutation(action, body) {
+  return api(`/v1/tenants/${encodeURIComponent(state.session.tenantId)}/exceptions/${encodeURIComponent(state.selectedExceptionId)}/${action}`, { method: "POST", body });
+}
+function currentWorkflowVersion() { return Number($("#exceptionDetail .workflow-actions")?.dataset.workflowVersion); }
+async function refreshSelectedException() { const id = state.selectedExceptionId; await loadAll(); await showExceptionDetail(id); }
 
 $("#togglePeriodForm").addEventListener("click", () => $("#periodForm").classList.remove("hidden"));
 $("#cancelPeriod").addEventListener("click", () => $("#periodForm").classList.add("hidden"));

@@ -11,19 +11,19 @@
       <div class="login-brand"><span class="brand-mark">H</span><strong>HyperRecon</strong><small>资金作业台</small></div>
       <form id="loginForm" class="login-panel">
         <div><span class="eyebrow">本地演示环境</span><h1>进入资金作业工作区</h1><p>使用真实 Foundation API 与 PostgreSQL 数据。</p></div>
+        <aside id="quickDemo" class="quick-demo hidden" aria-label="快速体验身份">
+          <button id="quickDemoToggle" class="quick-demo-toggle" type="button" aria-expanded="false"><span class="quick-demo-pulse"></span><span><strong>快速体验</strong><small>选择一个身份自动填充</small></span><b>＋</b></button>
+          <div id="quickDemoPanel" class="quick-demo-panel" hidden>
+            <div class="quick-demo-head"><div><span class="eyebrow">DEMO MODE</span><strong>选择体验身份</strong></div><button id="quickDemoClose" class="quick-demo-close" type="button" title="收起快速体验">×</button></div>
+            <p>只填入表单，不会替你提交登录。</p>
+            <div id="quickDemoAccounts" class="quick-demo-accounts"></div>
+          </div>
+        </aside>
         <label>邮箱<input id="emailInput" type="email" autocomplete="username" required /></label>
         <label>密码<input id="passwordInput" type="password" autocomplete="current-password" required /></label>
         <button class="button primary wide" type="submit">登录工作区</button>
         <p class="login-note">仅使用完全虚构数据。当前认证不具备 MFA、SSO 或登录限流。</p>
       </form>
-      <aside id="quickDemo" class="quick-demo hidden" aria-label="快速体验身份">
-        <button id="quickDemoToggle" class="quick-demo-toggle" type="button" aria-expanded="false"><span class="quick-demo-pulse"></span><span><strong>快速体验</strong><small>选择一个身份自动填充</small></span><b>＋</b></button>
-        <div id="quickDemoPanel" class="quick-demo-panel" hidden>
-          <div class="quick-demo-head"><div><span class="eyebrow">DEMO MODE</span><strong>选择体验身份</strong></div><button id="quickDemoClose" class="quick-demo-close" type="button" title="收起快速体验">×</button></div>
-          <p>只填入表单，不会替你提交登录。</p>
-          <div id="quickDemoAccounts" class="quick-demo-accounts"></div>
-        </div>
-      </aside>
     </section>
 
     <div id="appShell" class="app-shell hidden">
@@ -105,8 +105,8 @@
           </section>
 
           <section id="exceptions" class="view">
-            <div class="section-row"><div><h2>异常队列</h2><p>所有歧义与未匹配记录进入人工调查</p></div><div class="filter-row"><select id="exceptionStatus"><option value="open">待处理</option><option value="resolved">已解决</option><option value="">全部状态</option></select><select id="exceptionCurrency"><option value="">全部币种</option><option>USD</option><option>EUR</option><option>GBP</option><option>HKD</option></select></div></div>
-            <div class="split-layout"><div class="table-scroll"><table><thead><tr><th>优先级</th><th>外部流水</th><th>来源</th><th>类型</th><th>金额</th><th>业务日期</th></tr></thead><tbody id="exceptionRows"></tbody></table></div><aside id="exceptionDetail" class="detail-panel"><div class="empty-detail"><strong>选择一条异常</strong><p>查看来源、金额和产生原因。</p></div></aside></div>
+            <div class="section-row"><div><h2>异常与调查建议</h2><p>查看异常处理状态、AI 调查建议和人工复核证据</p></div><div class="filter-row"><select id="exceptionStatus"><option value="active">全部待办</option><option value="open">待领取</option><option value="investigating">调查中</option><option value="pending_review">待复核</option><option value="resolved">已解决</option><option value="">全部状态</option></select><select id="exceptionCurrency"><option value="">全部币种</option><option>USD</option><option>EUR</option><option>GBP</option><option>HKD</option></select></div></div>
+            <div class="split-layout"><div class="table-scroll"><table><thead><tr><th>优先级</th><th>外部流水</th><th>状态</th><th>负责人</th><th>类型</th><th>AI 建议</th><th>金额</th><th>业务日期</th></tr></thead><tbody id="exceptionRows"></tbody></table></div><aside id="exceptionDetail" class="detail-panel exception-workflow-detail"><div class="empty-detail"><strong>选择一条异常</strong><p>查看 AI 建议、调查备注和复核记录。</p></div></aside></div>
           </section>
 
           <section id="periods" class="view">
