@@ -474,13 +474,11 @@ function setPageIdentity(profile, view) {
   $("#pageTitle").textContent = profile.navigation[view] || labels[view]?.[1] || profile.title;
 }
 
-function showApp() { $("#loginView").classList.add("hidden"); $("#appShell").classList.remove("hidden"); }
+function showApp() { $("#appShell").classList.remove("hidden"); }
 function signOut(callApi = true) {
   if (callApi && state.session) api("/v1/sessions/current", { method: "DELETE" }).catch(() => {});
   state.session = null; state.workspace = null; sessionStorage.removeItem(sessionKey);
-  $$(".view").forEach((item) => item.classList.toggle("active", item.id === "overview"));
-  $(".sidebar").classList.remove("open");
-  $("#appShell").classList.add("hidden"); $("#loginView").classList.remove("hidden");
+  window.location.reload();
 }
 function setBusy(value) { $("#refreshButton").disabled = value; }
 
@@ -511,18 +509,30 @@ function matchType(value) { return ({ one_to_one: "一对一", many_to_one: "多
 function detailText(item) { if (item.exception_type === "unmatched_source") return "规则范围内没有找到金额、币种与日期窗口均满足的目标记录。"; if (item.exception_type === "unmatched_target") return "目标侧出现了没有对应来源记录的资金流水，需要确认漏单、跨期或来源范围。"; return `引擎拒绝自动选择候选。候选记录：${(item.details?.candidateIds || []).join(", ") || "未提供"}`; }
 function messageFor(error) { return ({ INVALID_CREDENTIALS: "邮箱或密码不正确", WORKSPACE_REQUIRED: "请选择工作区", INVALID_FILTER: "筛选条件无效", PERIOD_LOCKED: "该业务日期属于已锁定期间", CLOSE_BLOCKED: "仍有未获批准的阻断异常，不能锁定期间", INVALID_RUN_SET: "选择的运行不能组成有效月结快照", INVALID_RULE: "对账规则配置无效", INVALID_NOTE: "备注需填写 2 至 2000 个字", INVALID_AI_ADOPTION_REASON: "不采纳时请填写至少 2 个字的原因", AI_PARTIAL_STEPS_REQUIRED: "部分采纳必须选择至少一步，并保留至少一步不采纳", AI_ADOPTION_EXISTS: "这条 AI 建议已经记录过使用结果", INVALID_INVESTIGATION_ITEM: "检查项需填写 2 至 500 个字", INVALID_INVESTIGATION_RESULT: "完成或标记不适用时，请填写检查结果或原因", INVESTIGATION_INCOMPLETE: "还有必查项目未完成，暂时不能提交复核", INVALID_SUMMARY: "调查结论需填写 10 至 2000 个字", INVALID_REASON: "驳回原因需填写至少 10 个字", INVALID_REPLACEMENT_RUN: "涉及金额或匹配变化时，请选择同期间、无阻断异常的新对账运行", INVALID_EXCEPTION_STATE: "异常当前状态不允许此操作，请刷新后重试", INVALID_ASSIGNEE: "只能分派给当前工作区的操作员", EXCEPTION_ALREADY_ASSIGNED: "该异常已被其他操作员领取", STALE_EXCEPTION: "该异常刚刚被他人更新，请刷新后重试", SELF_APPROVAL_FORBIDDEN: "提交人不能批准自己的处理方案", AI_NOT_CONFIGURED: "AI 调查助手尚未配置", AI_PROVIDER_TIMEOUT: "AI 服务响应超时，请稍后重试", AI_PROVIDER_UNAVAILABLE: "暂时无法连接 AI 服务", AI_PROVIDER_AUTH_FAILED: "AI 服务鉴权失败，请检查本机配置", AI_PROVIDER_ERROR: "AI 服务暂时返回错误", AI_PROVIDER_INVALID_RESPONSE: "AI 返回内容未通过安全格式校验", FORBIDDEN: "当前角色没有执行此操作的权限", INTERNAL_ERROR: "服务发生内部错误，请查看请求日志" })[error.code] || error.code || error.message; }
 
-async function loadDemoAccounts() {
+async function autoLoginDemo() {
   try {
     const response = await fetch("/v1/demo-accounts");
-    if (!response.ok) return;
+    if (!response.ok) { renderOfflineShell(); return; }
     demoAccounts = (await response.json()).data || [];
-    if (!demoAccounts.length) return;
-    $("#quickDemo").classList.remove("hidden");
-    $("#quickDemoAccounts").innerHTML = demoAccounts.map((account) => `<button class="quick-demo-account" type="button" data-demo-role="${escapeHtml(account.role)}"><span class="quick-demo-role ${escapeHtml(account.role)}">${escapeHtml(account.label.slice(0, 1))}</span><span><strong>${escapeHtml(account.label)}</strong><small>${escapeHtml(account.description)}</small></span><b>填入</b></button>`).join("");
-  } catch { /* Demo mode is optional; keep the normal login form. */ }
+    if (!demoAccounts.length) { renderOfflineShell(); return; }
+    const account = demoAccounts.find((item) => item.role === "admin") || demoAccounts[0];
+    await login({ email: account.email, password: account.password });
+  } catch (error) {
+    renderOfflineShell();
+    $("#apiStatus").textContent = "等待数据库";
+    if (error.code) notify(messageFor(error), true);
+  }
 }
 
-$("#loginForm").addEventListener("submit", async (event) => {
+function renderOfflineShell() {
+  state.session = { role: "admin", tenantId: "", tenantName: "演示工作区" };
+  renderRoleChrome();
+  renderIdentity();
+  $("#apiStatus").textContent = "等待数据库";
+}
+
+const loginForm = $("#loginForm");
+if (loginForm) loginForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const credentials = { email: $("#emailInput").value.trim(), password: $("#passwordInput").value };
   try { await login(credentials); }
@@ -539,15 +549,15 @@ $("#workspaceChoices").addEventListener("click", async (event) => {
   const button = event.target.closest("[data-tenant-id]"); if (!button) return;
   try { await login(state.pendingCredentials, button.dataset.tenantId); } catch (error) { notify(messageFor(error), true); }
 });
-$("#quickDemoToggle").addEventListener("click", () => {
+$("#quickDemoToggle")?.addEventListener("click", () => {
   const panel = $("#quickDemoPanel");
   const open = panel.hidden;
   panel.hidden = !open;
   $("#quickDemoToggle").setAttribute("aria-expanded", String(open));
   $("#quickDemoToggle b").textContent = open ? "×" : "＋";
 });
-$("#quickDemoClose").addEventListener("click", () => $("#quickDemoToggle").click());
-$("#quickDemoAccounts").addEventListener("click", (event) => {
+$("#quickDemoClose")?.addEventListener("click", () => $("#quickDemoToggle")?.click());
+$("#quickDemoAccounts")?.addEventListener("click", (event) => {
   const button = event.target.closest("[data-demo-role]"); if (!button) return;
   const account = demoAccounts.find((item) => item.role === button.dataset.demoRole); if (!account) return;
   $("#emailInput").value = account.email;
@@ -711,5 +721,6 @@ $("#closeForm").addEventListener("submit", async (event) => {
   catch (error) { notify(messageFor(error), true); }
 });
 
-loadDemoAccounts();
-if (state.session) { showApp(); loadAll(); }
+showApp();
+if (state.session) loadAll();
+else autoLoginDemo();

@@ -1,3 +1,6 @@
 name = "CrossBorder 对账工作台"
-start = "sh -c 'pnpm run migrate && if [ \"$DEMO_MODE\" = \"true\" ]; then pnpm run demo:seed; fi && exec pnpm start'"
-health = "/ready"
+# The web process must stay reachable even when an external PostgreSQL service
+# is temporarily unavailable. Enable AUTO_MIGRATE explicitly in environments
+# that provision the database before starting the product.
+start = "sh -c 'set -e; if [ \"$AUTO_MIGRATE\" = \"true\" ]; then pnpm run migrate; fi; if [ \"$DEMO_MODE\" = \"true\" ] && [ \"$AUTO_MIGRATE\" = \"true\" ]; then pnpm run demo:seed; fi; exec pnpm start'"
+health = "/live"

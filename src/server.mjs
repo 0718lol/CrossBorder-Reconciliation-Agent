@@ -35,9 +35,13 @@ app.addHook("onRequest", async (request, reply) => {
 
 app.get("/live", async () => ({ status: "ok", version: "0.2.0" }));
 
-app.get("/ready", async () => {
-  await pool.query("SELECT 1");
-  return { status: "ok", version: "0.2.0" };
+app.get("/ready", async (_request, reply) => {
+  try {
+    await pool.query("SELECT 1");
+    return { status: "ok", version: "0.2.0" };
+  } catch {
+    return reply.code(503).send({ status: "unavailable", version: "0.2.0", dependency: "postgres" });
+  }
 });
 
 app.get("/health", async () => {

@@ -7,26 +7,7 @@
     <link rel="stylesheet" href="/console/styles.css" />
   </head>
   <body>
-    <section id="loginView" class="login-view">
-      <div class="login-brand"><span class="brand-mark">H</span><strong>HyperRecon</strong><small>资金作业台</small></div>
-      <form id="loginForm" class="login-panel">
-        <div><span class="eyebrow">本地演示环境</span><h1>进入资金作业工作区</h1><p>使用真实 Foundation API 与 PostgreSQL 数据。</p></div>
-        <aside id="quickDemo" class="quick-demo hidden" aria-label="快速体验身份">
-          <button id="quickDemoToggle" class="quick-demo-toggle" type="button" aria-expanded="false"><span class="quick-demo-pulse"></span><span><strong>快速体验</strong><small>选择一个身份自动填充</small></span><b>＋</b></button>
-          <div id="quickDemoPanel" class="quick-demo-panel" hidden>
-            <div class="quick-demo-head"><div><span class="eyebrow">DEMO MODE</span><strong>选择体验身份</strong></div><button id="quickDemoClose" class="quick-demo-close" type="button" title="收起快速体验">×</button></div>
-            <p>只填入表单，不会替你提交登录。</p>
-            <div id="quickDemoAccounts" class="quick-demo-accounts"></div>
-          </div>
-        </aside>
-        <label>邮箱<input id="emailInput" type="email" autocomplete="username" required /></label>
-        <label>密码<input id="passwordInput" type="password" autocomplete="current-password" required /></label>
-        <button class="button primary wide" type="submit">登录工作区</button>
-        <p class="login-note">仅使用完全虚构数据。当前认证不具备 MFA、SSO 或登录限流。</p>
-      </form>
-    </section>
-
-    <div id="appShell" class="app-shell hidden">
+    <div id="appShell" class="app-shell">
       <aside class="sidebar">
         <div class="brand"><span class="brand-mark">H</span><div><strong>HyperRecon</strong><small>Operations</small></div></div>
         <nav id="mainNav"></nav>

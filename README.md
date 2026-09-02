@@ -27,10 +27,12 @@ To load the fictional multi-currency demo workspace:
 pnpm run demo:seed
 ```
 
-When running under the ASteam product host, set `DEMO_MODE=true` to make the
-managed start command run the same idempotent migration and demo seed steps
-before serving the console. Production deployments must leave `DEMO_MODE` unset
-and provide their own `DATABASE_URL` and `BOOTSTRAP_TOKEN`.
+When running under the ASteam product host, provide PostgreSQL and set
+`AUTO_MIGRATE=true` to run the idempotent migration before serving. Add
+`DEMO_MODE=true` to seed the fictional workspace after migration. The web
+process remains reachable while PostgreSQL is unavailable (`/live` stays up;
+`/ready` reports `503`). Production deployments must leave `DEMO_MODE` unset and
+provide their own `DATABASE_URL` and `BOOTSTRAP_TOKEN`.
 
 The seed command prints the demo login credentials. The demo fixtures contain only fictional USD, EUR, and GBP records.
 
